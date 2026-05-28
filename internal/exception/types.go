@@ -11,14 +11,15 @@ import (
 	"time"
 )
 
-// Exception is one entry in .quokka/exceptions.yaml. It can be keyed by
-// Fingerprint XOR (PathGlob + CWE). The store enforces this exclusivity at
-// write time so callers don't need to revalidate it.
+// Exception is one suppression entry. It can be keyed by Fingerprint XOR
+// (PathGlob, CWE, AgentName) — at least one of the pattern fields must be
+// set when fingerprint is empty.
 type Exception struct {
 	ID          string    `yaml:"id" json:"id"`
 	Fingerprint string    `yaml:"fingerprint,omitempty" json:"fingerprint,omitempty"`
 	PathGlob    string    `yaml:"path_glob,omitempty" json:"path_glob,omitempty"`
 	CWE         string    `yaml:"cwe,omitempty" json:"cwe,omitempty"`
+	AgentName   string    `yaml:"agent_name,omitempty" json:"agent_name,omitempty"`
 	Reason      string    `yaml:"reason" json:"reason"`
 	Expires     time.Time `yaml:"expires" json:"expires"`
 	ApprovedBy  string    `yaml:"approved_by" json:"approved_by"`
@@ -32,9 +33,12 @@ func (e Exception) IsFingerprint() bool {
 	return strings.TrimSpace(e.Fingerprint) != ""
 }
 
-// IsPattern reports whether this exception targets a path glob + CWE.
+// IsPattern reports whether this exception targets a non-fingerprint
+// pattern: any of (PathGlob, CWE, AgentName) being set qualifies.
 func (e Exception) IsPattern() bool {
-	return strings.TrimSpace(e.PathGlob) != ""
+	return strings.TrimSpace(e.PathGlob) != "" ||
+		strings.TrimSpace(e.CWE) != "" ||
+		strings.TrimSpace(e.AgentName) != ""
 }
 
 // IsExpired reports whether the exception is past its expires date as of
@@ -62,13 +66,15 @@ func (e Exception) Validate() error {
 	hasFP := e.IsFingerprint()
 	hasPat := e.IsPattern()
 	if hasFP && hasPat {
-		return fmt.Errorf("exception cannot set both fingerprint and path_glob")
+		return fmt.Errorf("exception cannot set both fingerprint and pattern fields (path_glob/cwe/agent_name)")
 	}
 	if !hasFP && !hasPat {
-		return fmt.Errorf("exception must set either fingerprint or path_glob")
+		return fmt.Errorf("exception must set either fingerprint or one of path_glob/cwe/agent_name")
 	}
-	if hasPat && strings.TrimSpace(e.CWE) == "" {
-		return fmt.Errorf("cwe is required for path-glob exceptions (suppressions are scoped to a vulnerability class)")
+	// Path globs without a CWE are over-broad — keep the legacy guard so
+	// pattern-mode suppressions stay scoped to a vulnerability class.
+	if strings.TrimSpace(e.PathGlob) != "" && strings.TrimSpace(e.CWE) == "" {
+		return fmt.Errorf("cwe is required when path_glob is set (suppressions must be scoped)")
 	}
 	return nil
 }

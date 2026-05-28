@@ -120,54 +120,6 @@ func (stubTranscripts) List(context.Context, string) ([]*store.Transcript, error
 	return nil, store.ErrNotImplemented
 }
 
-type stubFindings struct{}
-
-func (stubFindings) Create(context.Context, *store.FindingRow) error { return store.ErrNotImplemented }
-func (stubFindings) Get(context.Context, string) (*store.FindingRow, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubFindings) FindByFingerprintAndCreator(context.Context, string, string, string) (*store.FindingRow, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubFindings) List(context.Context, string) ([]*store.FindingRow, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubFindings) UpdateStatus(context.Context, string, string) error { return store.ErrNotImplemented }
-
-type stubFindingActions struct{}
-
-func (stubFindingActions) Append(context.Context, string, string, string, string, string) error {
-	return store.ErrNotImplemented
-}
-func (stubFindingActions) List(context.Context, string) ([]*store.FindingAction, error) {
-	return nil, store.ErrNotImplemented
-}
-
-type stubMemories struct{}
-
-func (stubMemories) Upsert(context.Context, *store.MemoryRow) error { return store.ErrNotImplemented }
-func (stubMemories) Get(context.Context, string, string) (*store.MemoryRow, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubMemories) List(context.Context, string, string) ([]*store.MemoryRow, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubMemories) Delete(context.Context, string, string) error { return store.ErrNotImplemented }
-func (stubMemories) Search(context.Context, string, string) ([]*store.MemoryRow, error) {
-	return nil, store.ErrNotImplemented
-}
-
-type stubExceptions struct{}
-
-func (stubExceptions) Create(context.Context, *store.ExceptionRow) error { return store.ErrNotImplemented }
-func (stubExceptions) Get(context.Context, string) (*store.ExceptionRow, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubExceptions) List(context.Context, string) ([]*store.ExceptionRow, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubExceptions) Delete(context.Context, string) error { return store.ErrNotImplemented }
-
 type stubModelUsage struct{}
 
 func (stubModelUsage) Add(context.Context, *store.ModelUsage) error { return store.ErrNotImplemented }

@@ -433,7 +433,9 @@ type FindingStore interface {
 	Get(ctx context.Context, id string) (*FindingRow, error)
 	FindByFingerprintAndCreator(ctx context.Context, repoID, fingerprint, createdBy string) (*FindingRow, error)
 	List(ctx context.Context, repoID string) ([]*FindingRow, error)
+	Update(ctx context.Context, f *FindingRow) error
 	UpdateStatus(ctx context.Context, id, status string) error
+	Delete(ctx context.Context, id string) error
 }
 
 type FindingRow struct {
@@ -448,10 +450,24 @@ type FindingRow struct {
 	FixPriority    string
 	Status         string
 	CWE            string
+	CVSSScore      float64
+	CVSSVector     string
 	File           string
 	LineStart      int
 	LineEnd        int
+	FunctionName   string
+	Snippet        string
 	Description    string
+	Impact         string
+	Remediation    string
+	EvidenceJSON   string
+	FlowTraceJSON  string
+	RefsJSON       string
+	TagsJSON       string
+	NotesJSON      string
+	ReopenedCount  int
+	LastResolvedAt *time.Time
+	DuplicateOf    string
 	CreatedBy      string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
@@ -498,6 +514,11 @@ type ExceptionStore interface {
 	Get(ctx context.Context, id string) (*ExceptionRow, error)
 	List(ctx context.Context, repoID string) ([]*ExceptionRow, error)
 	Delete(ctx context.Context, id string) error
+	// Match returns the first non-expired exception that suppresses the
+	// given (fingerprint, file, cwe, agent) tuple, or (nil, nil) when none
+	// match. SQL impls fall back to in-memory matching since the XOR
+	// constraint makes a single-query match impractical.
+	Match(ctx context.Context, repoID, fingerprint, file, cwe, agentName string) (*ExceptionRow, error)
 }
 
 type ExceptionRow struct {

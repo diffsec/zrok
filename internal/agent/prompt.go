@@ -12,6 +12,14 @@ import (
 	"github.com/diffsec/quokka/internal/project"
 )
 
+// MemoryReader is the subset of memory access the prompt generator needs.
+// Both the legacy YAML store (gone after PR-1B) and any future SQL adapter
+// satisfy this interface, so tests can inject a fake without dragging the
+// real store in.
+type MemoryReader interface {
+	ReadByName(name string) (*memory.Memory, error)
+}
+
 const (
 	// DefaultMaxMemoryBytes is the maximum size of a single memory injection in bytes.
 	DefaultMaxMemoryBytes = 4096
@@ -65,12 +73,14 @@ type PromptData struct {
 
 // PromptGenerator generates prompts for agents
 type PromptGenerator struct {
-	project      *project.Project
-	memoryStore  *memory.Store
+	project     *project.Project
+	memoryStore MemoryReader
 }
 
-// NewPromptGenerator creates a new prompt generator
-func NewPromptGenerator(p *project.Project, ms *memory.Store) *PromptGenerator {
+// NewPromptGenerator creates a new prompt generator. The memory reader
+// may be nil if the caller doesn't need memory injection (e.g. a builder
+// that only renders templates).
+func NewPromptGenerator(p *project.Project, ms MemoryReader) *PromptGenerator {
 	return &PromptGenerator{
 		project:     p,
 		memoryStore: ms,
