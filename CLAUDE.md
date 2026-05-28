@@ -18,6 +18,13 @@ quokka/
 ├── eval/                   # Evaluation framework (legacy; unchanged)
 ├── internal/
 │   ├── app/                # cobra subcommands: server, worker, migrate, admin, agent run
+│   ├── web/                # HTTP server (PR-3); templ + middleware + handlers + static
+│   │   ├── server.go
+│   │   ├── middleware/     # session, csrf, auth, logging, recover, request_id
+│   │   ├── handlers/       # auth, repos, runs, findings, healthz
+│   │   ├── templates/      # *.templ + generated *_templ.go
+│   │   ├── webctx/         # request-context key types (no-cycle helper)
+│   │   └── static/         # CSS + JS
 │   ├── store/              # Stores aggregate + interfaces
 │   │   └── sql/{sqlite,postgres}/  # concrete adapters + tests
 │   ├── crypto/             # AES-GCM cipher + keyring (env-driven master key)
@@ -70,9 +77,11 @@ go test -short ./...           # skips testcontainers-backed Postgres tests
   PRFeedback, Audit).
 - `sql/sqlite/` and `sql/postgres/` — concrete impls; both register
   their builder via `init()`.
-- Concrete impls live for: Orgs, Users, Sessions, Providers, Findings,
-  FindingActions, Memories, Exceptions. The rest are stubs that
-  PR-2/PR-3 will fill in.
+- Concrete impls live for: Orgs, Users, Sessions, OAuth, Repos, Runs,
+  Providers, Findings, FindingActions, Memories, Exceptions. The rest
+  (Installations, ProviderModels, AgentConfigs, Workflows, Events,
+  Transcripts, ModelUsage, PRFeedback, Audit) are stubs filled in by
+  PR-4/PR-5 as features arrive.
 
 ### Agent System (`internal/agent/`)
 - `registry.go` — Built-in agent definitions, `SuggestAgents()`
@@ -124,6 +133,26 @@ go test -short ./...           # skips testcontainers-backed Postgres tests
 - `operations.go` — `Prompt(verb)` renders one of the parametric
   thinking-prompt bodies (collected, adherence, done, next, hypothesis,
   validate, dataflow). Brief B exposes one tool per verb.
+
+### Web (`internal/web/`)
+- `server.go` — http.Server wrapper; composes middleware (request_id →
+  recover → logging → secure_headers → session → csrf → require_auth),
+  registers routes, embeds `static/`.
+- `middleware/` — session reads `q_session` cookie, slides `expires_at`
+  by 30d, sets fresh cookie; CSRF is double-submit (`q_csrf` cookie
+  vs `X-CSRF-Token` header or `csrf_token` form field).
+- `handlers/` — `auth.go` runs the GitHub OAuth handshake (env-driven
+  `QUOKKA_GITHUB_APP_CLIENT_ID`, `_CLIENT_SECRET`, `QUOKKA_GITHUB_ORG`,
+  `QUOKKA_ADMIN_LOGINS`). `github_client.go` defines the narrow
+  `GitHubClient` interface; tests use a fake, prod uses the http impl.
+  PR-4 will fold this into `internal/github/` for App auth.
+- `templates/` — a-h/templ source files (`.templ`) and generated
+  siblings (`*_templ.go`). Both are committed. Regenerate with
+  `templ generate -path internal/web/templates`. `mise.toml` pins the
+  CLI version; `templates.go` carries the `//go:generate` directive.
+- Run locally: `QUOKKA_MASTER_KEY=$(openssl rand -base64 32) \
+  quokka server --addr :8080 --base-url http://localhost:8080 \
+  --dsn 'sqlite:///tmp/q.db' --data-root /tmp/qd`.
 
 ## Adding New Features
 

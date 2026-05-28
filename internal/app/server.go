@@ -1,18 +1,106 @@
 package app
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 
+	"github.com/diffsec/quokka/internal/store"
+	"github.com/diffsec/quokka/internal/web"
+	"github.com/diffsec/quokka/internal/web/handlers"
 	"github.com/spf13/cobra"
 )
 
 func newServerCmd() *cobra.Command {
-	return &cobra.Command{
+	var (
+		addr    string
+		baseURL string
+	)
+	cmd := &cobra.Command{
 		Use:   "server",
-		Short: "Run the HTTP web server (not yet implemented)",
+		Short: "Run the HTTP web server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), "quokka server: not yet implemented (PR-3)")
-			return nil
+			return runServer(cmd.Context(), addr, baseURL)
 		},
 	}
+	cmd.Flags().StringVar(&addr, "addr", ":8080", "Listen address (e.g. :8080)")
+	cmd.Flags().StringVar(&baseURL, "base-url", os.Getenv("QUOKKA_BASE_URL"),
+		"Externally visible base URL for OAuth callbacks (env QUOKKA_BASE_URL)")
+	return cmd
+}
+
+func runServer(ctx context.Context, addr, baseURL string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if globals.DSN == "" {
+		return fmt.Errorf("--dsn or QUOKKA_DSN is required")
+	}
+	if baseURL == "" {
+		return fmt.Errorf("--base-url or QUOKKA_BASE_URL is required")
+	}
+
+	stores, err := store.Open(ctx, store.Config{DSN: globals.DSN, DataRoot: globals.DataRoot})
+	if err != nil {
+		return fmt.Errorf("open stores: %w", err)
+	}
+	defer func() { _ = stores.Close() }()
+
+	clientID := os.Getenv("QUOKKA_GITHUB_APP_CLIENT_ID")
+	clientSecret := os.Getenv("QUOKKA_GITHUB_APP_CLIENT_SECRET")
+	orgLogin := os.Getenv("QUOKKA_GITHUB_ORG")
+	adminLogins := splitAndTrim(os.Getenv("QUOKKA_ADMIN_LOGINS"))
+
+	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	srv := web.NewServer(web.Config{
+		Addr:          addr,
+		BaseURL:       baseURL,
+		OrgLogin:      orgLogin,
+		AdminLogins:   adminLogins,
+		ClientID:      clientID,
+		ClientSecret:  clientSecret,
+		SecureCookies: false, // computed from BaseURL inside NewServer
+		GitHub:        handlers.NewHTTPGitHubClient(clientID, clientSecret, "", ""),
+		Stores:        stores,
+		Log:           log,
+	})
+
+	// Shutdown on SIGINT/SIGTERM.
+	sigCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Start() }()
+	select {
+	case <-sigCtx.Done():
+		log.Info("shutdown signal received")
+		sdCtx, sdCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer sdCancel()
+		if err := srv.Shutdown(sdCtx); err != nil {
+			return err
+		}
+		return nil
+	case err := <-errCh:
+		return err
+	}
+}
+
+func splitAndTrim(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

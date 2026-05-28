@@ -1,0 +1,44 @@
+package templates
+
+templ Repos(v ReposView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Repositories</h1>
+		</header>
+		if len(v.Repos) == 0 {
+			<div class="empty">
+				<p>No repositories connected yet.</p>
+				<p>An admin can install the GitHub App to add one.</p>
+			</div>
+		} else {
+			<table class="repos-table">
+				<thead>
+					<tr>
+						<th>Repository</th>
+						<th>Branch</th>
+						<th>State</th>
+						<th>Last indexed</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, r := range v.Repos {
+						<tr>
+							<td>
+								<a href={ templ.URL("/repos/" + r.ID) }>{ r.FullName }</a>
+							</td>
+							<td>{ r.DefaultBranch }</td>
+							<td><span class={ "state state-" + r.State }>{ r.State }</span></td>
+							<td>
+								if r.LastIndexedAt != nil {
+									{ FormatTimeAgo(*r.LastIndexedAt) }
+								} else {
+									<span class="muted">never</span>
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	}
+}

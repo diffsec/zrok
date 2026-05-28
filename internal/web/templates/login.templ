@@ -1,0 +1,24 @@
+package templates
+
+templ Login(errCode, next, csrfToken string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="csrf-token" content={ csrfToken }/>
+			<title>Sign in &middot; quokka</title>
+			<link rel="stylesheet" href="/static/css/app.css"/>
+		</head>
+		<body class="login-page">
+			<div class="login-card">
+				<h1>quokka</h1>
+				<p>LLM-assisted code review</p>
+				if errCode == "not_in_org" {
+					<div class="error">Your GitHub account is not a member of the configured organization.</div>
+				}
+				<a class="btn-primary" href={ templ.URL("/login/start?next=" + next) }>Sign in with GitHub</a>
+			</div>
+		</body>
+	</html>
+}

@@ -1,0 +1,80 @@
+package templates
+
+import "strconv"
+
+templ FindingsList(v FindingsListView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Findings &mdash; { v.Repo.FullName }</h1>
+			<nav class="subnav">
+				<a href={ templ.URL("/repos/" + v.Repo.ID) }>Overview</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/runs") }>Runs</a>
+				<a class="active" href={ templ.URL("/repos/" + v.Repo.ID + "/findings") }>Findings</a>
+			</nav>
+		</header>
+
+		<form class="filters" method="get">
+			<label>
+				Severity
+				<select name="severity">
+					<option value="">all</option>
+					for _, s := range severityOrder {
+						if v.Filter.Severity == s {
+							<option value={ s } selected>{ s }</option>
+						} else {
+							<option value={ s }>{ s }</option>
+						}
+					}
+				</select>
+			</label>
+			<label>
+				Status
+				<select name="status">
+					<option value="">all</option>
+					for _, s := range []string{"open","fixed","dismissed","suppressed","snoozed"} {
+						if v.Filter.Status == s {
+							<option value={ s } selected>{ s }</option>
+						} else {
+							<option value={ s }>{ s }</option>
+						}
+					}
+				</select>
+			</label>
+			<label>Path <input type="text" name="path" value={ v.Filter.Path }/></label>
+			<label>CWE <input type="text" name="cwe" value={ v.Filter.CWE }/></label>
+			<button type="submit">Apply</button>
+		</form>
+
+		if len(v.Findings) == 0 {
+			<p class="empty">No findings match the current filter.</p>
+		} else {
+			<table class="findings-table">
+				<thead>
+					<tr>
+						<th>Severity</th>
+						<th>Title</th>
+						<th>File</th>
+						<th>CWE</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, f := range v.Findings {
+						<tr>
+							<td><span class={ "sev sev-" + f.Severity }>{ f.Severity }</span></td>
+							<td>{ f.Title }</td>
+							<td class="path">
+								{ f.File }
+								if f.LineStart > 0 {
+									:{ strconv.Itoa(f.LineStart) }
+								}
+							</td>
+							<td>{ f.CWE }</td>
+							<td>{ f.Status }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	}
+}

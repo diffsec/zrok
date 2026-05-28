@@ -2,3 +2,5 @@
 go = "1.25.4"
 node = "latest"
 python = "latest"
+"go:github.com/a-h/templ/cmd/templ" = "v0.3.1020"
+

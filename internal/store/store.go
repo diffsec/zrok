@@ -256,7 +256,8 @@ type UserStore interface {
 type SessionStore interface {
 	Create(ctx context.Context, s *Session) error
 	Get(ctx context.Context, id string) (*Session, error)
-	Touch(ctx context.Context, id string, lastSeen time.Time) error
+	// Touch updates last_seen_at and slides expires_at forward.
+	Touch(ctx context.Context, id string, lastSeen, expiresAt time.Time) error
 	Delete(ctx context.Context, id string) error
 	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
 }

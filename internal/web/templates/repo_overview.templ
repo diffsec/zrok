@@ -1,0 +1,60 @@
+package templates
+
+import "strconv"
+
+templ RepoOverview(v RepoOverviewView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>{ v.Repo.FullName }</h1>
+			<nav class="subnav">
+				<a class="active" href={ templ.URL("/repos/" + v.Repo.ID) }>Overview</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/runs") }>Runs</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/findings") }>Findings</a>
+			</nav>
+		</header>
+
+		<section class="overview-grid">
+			<div class="overview-card">
+				<h2>Open findings</h2>
+				<ul class="sev-counts">
+					for _, sev := range severityOrder {
+						<li>
+							<span class={ "sev sev-" + sev }>{ sev }</span>
+							<span class="count">{ strconv.Itoa(v.OpenFindingsBySev[sev]) }</span>
+						</li>
+					}
+				</ul>
+			</div>
+			<div class="overview-card">
+				<h2>Recent runs</h2>
+				if len(v.RecentRuns) == 0 {
+					<p class="muted">No runs yet.</p>
+				} else {
+					<ul class="runs-list">
+						for _, r := range v.RecentRuns {
+							<li>
+								<a href={ templ.URL("/repos/" + v.Repo.ID + "/runs/" + r.ID) }>
+									<span class={ "status status-" + r.Status }>{ r.Status }</span>
+									<span class="trigger">{ r.Trigger }</span>
+									if r.HeadSHA != "" {
+										<span class="sha">{ shortSHA(r.HeadSHA) }</span>
+									}
+									<span class="ago">{ FormatTimeAgo(r.CreatedAt) }</span>
+								</a>
+							</li>
+						}
+					</ul>
+				}
+			</div>
+		</section>
+	}
+}
+
+var severityOrder = []string{"critical", "high", "medium", "low", "info"}
+
+func shortSHA(s string) string {
+	if len(s) > 7 {
+		return s[:7]
+	}
+	return s
+}

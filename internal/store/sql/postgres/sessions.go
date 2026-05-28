@@ -45,8 +45,9 @@ func (s *sessionStore) Get(ctx context.Context, id string) (*store.Session, erro
 	return sess, nil
 }
 
-func (s *sessionStore) Touch(ctx context.Context, id string, lastSeen time.Time) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET last_seen_at=$1 WHERE id=$2`, lastSeen, id)
+func (s *sessionStore) Touch(ctx context.Context, id string, lastSeen, expiresAt time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET last_seen_at=$1, expires_at=$2 WHERE id=$3`, lastSeen, expiresAt, id)
 	return err
 }
 

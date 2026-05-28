@@ -3,6 +3,7 @@ module github.com/diffsec/quokka
 go 1.25.6
 
 require (
+	github.com/a-h/templ v0.3.1020
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/uuid v1.6.0

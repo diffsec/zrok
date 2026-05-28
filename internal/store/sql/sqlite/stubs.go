@@ -9,12 +9,6 @@ import (
 
 // Stub stores returning ErrNotImplemented. PR-1B fleshes these out.
 
-type stubOAuth struct{}
-
-func (stubOAuth) Upsert(context.Context, *store.OAuthToken) error               { return store.ErrNotImplemented }
-func (stubOAuth) Get(context.Context, string, string) (*store.OAuthToken, error) { return nil, store.ErrNotImplemented }
-func (stubOAuth) Delete(context.Context, string, string) error                   { return store.ErrNotImplemented }
-
 type stubInstallations struct{}
 
 func (stubInstallations) Create(context.Context, *store.Installation) error { return store.ErrNotImplemented }
@@ -26,21 +20,6 @@ func (stubInstallations) GetByGitHubID(context.Context, int64) (*store.Installat
 }
 func (stubInstallations) Update(context.Context, *store.Installation) error { return store.ErrNotImplemented }
 func (stubInstallations) List(context.Context, string) ([]*store.Installation, error) {
-	return nil, store.ErrNotImplemented
-}
-
-type stubRepos struct{}
-
-func (stubRepos) Create(context.Context, *store.Repository) error      { return store.ErrNotImplemented }
-func (stubRepos) Get(context.Context, string) (*store.Repository, error) { return nil, store.ErrNotImplemented }
-func (stubRepos) GetByGitHubID(context.Context, int64) (*store.Repository, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubRepos) GetByFullName(context.Context, string, string) (*store.Repository, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubRepos) Update(context.Context, *store.Repository) error { return store.ErrNotImplemented }
-func (stubRepos) List(context.Context, string) ([]*store.Repository, error) {
 	return nil, store.ErrNotImplemented
 }
 
@@ -94,15 +73,6 @@ func (stubWorkflows) GetVersion(context.Context, string) (*store.WorkflowVersion
 func (stubWorkflows) SetActiveVersion(context.Context, string, string) error {
 	return store.ErrNotImplemented
 }
-
-type stubRuns struct{}
-
-func (stubRuns) Create(context.Context, *store.Run) error          { return store.ErrNotImplemented }
-func (stubRuns) Get(context.Context, string) (*store.Run, error)   { return nil, store.ErrNotImplemented }
-func (stubRuns) List(context.Context, string, int, int) ([]*store.Run, error) {
-	return nil, store.ErrNotImplemented
-}
-func (stubRuns) UpdateStatus(context.Context, string, string) error { return store.ErrNotImplemented }
 
 type stubEvents struct{}
 
