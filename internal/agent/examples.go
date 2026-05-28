@@ -22,8 +22,8 @@ type Example struct {
 
 // exampleFile represents the YAML structure of an example file
 type exampleFile struct {
-	CWE      string `yaml:"cwe"`
-	Name     string `yaml:"name"`
+	CWE      string    `yaml:"cwe"`
+	Name     string    `yaml:"name"`
 	Examples []Example `yaml:"examples"`
 }
 

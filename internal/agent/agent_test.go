@@ -226,10 +226,10 @@ func TestConfigManagerCreate(t *testing.T) {
 	manager := NewConfigManager(p, "")
 
 	config := &AgentConfig{
-		Name:        "custom-agent",
-		Description: "A custom test agent",
-		Phase:       PhaseAnalysis,
-		ToolsAllowed: []string{"read", "search"},
+		Name:           "custom-agent",
+		Description:    "A custom test agent",
+		Phase:          PhaseAnalysis,
+		ToolsAllowed:   []string{"read", "search"},
 		PromptTemplate: "You are a custom agent.",
 	}
 
@@ -328,9 +328,9 @@ func TestPromptGeneratorGenerate(t *testing.T) {
 	generator := NewPromptGenerator(p, memStore)
 
 	config := &AgentConfig{
-		Name:        "test-agent",
-		Description: "Test agent",
-		Phase:       PhaseAnalysis,
+		Name:         "test-agent",
+		Description:  "Test agent",
+		Phase:        PhaseAnalysis,
 		ToolsAllowed: []string{"read", "search", "memory"},
 		PromptTemplate: `Agent: {{.AgentName}}
 Project: {{.ProjectName}}

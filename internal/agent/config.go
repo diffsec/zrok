@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,6 +41,17 @@ type CWEChecklistItem struct {
 	FlowPatterns   []string `yaml:"flow_patterns,omitempty" json:"flow_patterns,omitempty"`
 }
 
+// ModelConfig holds the per-agent override on the org's default provider
+// and model. All fields are optional; resolution at run time falls back
+// to the org default, then to the built-in provider default.
+type ModelConfig struct {
+	ProviderID    string  `yaml:"provider_id,omitempty" json:"provider_id,omitempty"`
+	Model         string  `yaml:"model,omitempty" json:"model,omitempty"`
+	Temperature   float32 `yaml:"temperature,omitempty" json:"temperature,omitempty"`
+	MaxTokens     int     `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	NetworkEgress string  `yaml:"network_egress,omitempty" json:"network_egress,omitempty"`
+}
+
 // AgentConfig represents an agent configuration
 type AgentConfig struct {
 	Name            string                    `yaml:"name" json:"name"`
@@ -51,6 +63,23 @@ type AgentConfig struct {
 	ToolsAllowed    []string                  `yaml:"tools_allowed" json:"tools_allowed"`
 	PromptTemplate  string                    `yaml:"prompt_template" json:"prompt_template"`
 	ContextMemories []string                  `yaml:"context_memories,omitempty" json:"context_memories,omitempty"`
+	// ModelConfig is the optional per-agent override on the org default
+	// provider/model. nil means "inherit org defaults".
+	ModelConfig *ModelConfig `yaml:"model_config,omitempty" json:"model_config,omitempty"`
+}
+
+// LoadStrict parses an AgentConfig from YAML in strict mode (unknown
+// fields error). Use this in workflow context where typos should fail
+// loudly; the lenient ConfigManager.loadFromFile loader stays for
+// back-compat with existing on-disk YAML.
+func LoadStrict(data []byte) (*AgentConfig, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var cfg AgentConfig
+	if err := dec.Decode(&cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
 }
 
 // AgentList contains a list of agents
