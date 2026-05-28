@@ -1,0 +1,28 @@
+-- 0001_init.down.sql (postgres)
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS enqueued_jobs;
+DROP TABLE IF EXISTS pr_feedback_settings;
+DROP TABLE IF EXISTS model_usage;
+DROP TABLE IF EXISTS exceptions;
+DROP TRIGGER IF EXISTS memories_search_tsv_update ON memories;
+DROP FUNCTION IF EXISTS memories_search_tsv_trigger();
+DROP TABLE IF EXISTS memories;
+DROP TABLE IF EXISTS finding_actions;
+DROP TABLE IF EXISTS findings;
+DROP TABLE IF EXISTS timeline_events;
+DROP TABLE IF EXISTS transcripts;
+DROP TABLE IF EXISTS run_agent_invocations;
+DROP TABLE IF EXISTS run_phases;
+DROP TABLE IF EXISTS runs;
+DROP TABLE IF EXISTS workflow_versions;
+DROP TABLE IF EXISTS workflows;
+DROP TABLE IF EXISTS agent_config_revisions;
+DROP TABLE IF EXISTS agent_configs;
+DROP TABLE IF EXISTS provider_models;
+DROP TABLE IF EXISTS providers;
+DROP TABLE IF EXISTS repositories;
+DROP TABLE IF EXISTS installations;
+DROP TABLE IF EXISTS oauth_tokens;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS organizations;

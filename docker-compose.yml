@@ -1,0 +1,73 @@
+services:
+  # ----- Solo (default): single binary + SQLite ---------------------------
+  # No profile -> always starts with bare `docker compose up`.
+  server:
+    build: .
+    image: quokka:dev
+    command: ["server"]
+    environment:
+      QUOKKA_DSN: "sqlite:///data/quokka.db"
+      QUOKKA_DATA_ROOT: "/data"
+      QUOKKA_MASTER_KEY: ${QUOKKA_MASTER_KEY:?QUOKKA_MASTER_KEY must be set}
+    volumes:
+      - quokka-state:/data
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # ----- Teams profile (pg): server + worker + postgres + redis -----------
+  server-pg:
+    build: .
+    image: quokka:dev
+    profiles: ["pg"]
+    command: ["server"]
+    environment:
+      QUOKKA_DSN: "postgres://quokka:quokka@postgres:5432/quokka?sslmode=disable"
+      QUOKKA_DATA_ROOT: "/data"
+      QUOKKA_REDIS_URL: "redis://redis:6379/0"
+      QUOKKA_MASTER_KEY: ${QUOKKA_MASTER_KEY:?QUOKKA_MASTER_KEY must be set}
+    volumes:
+      - quokka-state:/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  worker-pg:
+    build: .
+    image: quokka:dev
+    profiles: ["pg"]
+    command: ["worker"]
+    environment:
+      QUOKKA_DSN: "postgres://quokka:quokka@postgres:5432/quokka?sslmode=disable"
+      QUOKKA_DATA_ROOT: "/data"
+      QUOKKA_REDIS_URL: "redis://redis:6379/0"
+      QUOKKA_MASTER_KEY: ${QUOKKA_MASTER_KEY:?QUOKKA_MASTER_KEY must be set}
+    volumes:
+      - quokka-state:/data
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["pg"]
+    environment:
+      POSTGRES_USER: quokka
+      POSTGRES_PASSWORD: quokka
+      POSTGRES_DB: quokka
+    volumes:
+      - quokka-pg:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["pg"]
+    restart: unless-stopped
+
+volumes:
+  quokka-state:
+  quokka-pg:
