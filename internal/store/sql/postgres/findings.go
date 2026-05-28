@@ -110,6 +110,71 @@ func (s *findingStore) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+func (s *findingStore) ListByRun(ctx context.Context, runID string) ([]*store.FindingRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		selectFindingSQL+` WHERE run_id=$1 ORDER BY severity, created_at`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*store.FindingRow
+	for rows.Next() {
+		f, err := scanFinding(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// AutoResolveMissing flips any open findings on repoID whose fingerprint is
+// NOT in seenFingerprints to status='fixed' and stamps last_resolved_at.
+func (s *findingStore) AutoResolveMissing(ctx context.Context, repoID string, seenFingerprints []string) (int64, error) {
+	now := time.Now().UTC()
+	args := []any{now, now, repoID}
+	q := `UPDATE findings SET status='fixed', last_resolved_at=$1, updated_at=$2 WHERE repo_id=$3 AND status='open' AND fingerprint IS NOT NULL AND fingerprint <> ''`
+	if len(seenFingerprints) > 0 {
+		q += ` AND fingerprint NOT IN (`
+		for i := range seenFingerprints {
+			if i > 0 {
+				q += ","
+			}
+			q += "$" + itoa(i+4)
+			args = append(args, seenFingerprints[i])
+		}
+		q += `)`
+	}
+	res, err := s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func itoa(i int) string {
+	// Tiny inline itoa to avoid pulling fmt for hot SQL building.
+	if i == 0 {
+		return "0"
+	}
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	var buf [20]byte
+	p := len(buf)
+	for i > 0 {
+		p--
+		buf[p] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		p--
+		buf[p] = '-'
+	}
+	return string(buf[p:])
+}
+
 const selectFindingSQL = `SELECT id,repo_id,COALESCE(run_id::text,''),COALESCE(fingerprint,''),
     title,severity,COALESCE(confidence,''),COALESCE(exploitability,''),
     COALESCE(fix_priority,''),status,COALESCE(cwe,''),COALESCE(cvss_score,0),

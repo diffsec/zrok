@@ -109,6 +109,54 @@ func (s *findingStore) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+func (s *findingStore) ListByRun(ctx context.Context, runID string) ([]*store.FindingRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		selectFindingSQL+` WHERE run_id=? ORDER BY severity, created_at`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*store.FindingRow
+	for rows.Next() {
+		f, err := scanFinding(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// AutoResolveMissing flips any open findings on repoID whose fingerprint is
+// NOT in seenFingerprints to status='fixed' and stamps last_resolved_at.
+// An empty seenFingerprints list resolves every open finding on the repo,
+// which is the correct semantics for a clean run.
+func (s *findingStore) AutoResolveMissing(ctx context.Context, repoID string, seenFingerprints []string) (int64, error) {
+	now := time.Now().UTC()
+	// Build a NOT IN (...) clause. SQLite has no array binding, so we
+	// inline the placeholders.
+	args := []any{now, now, repoID}
+	q := `UPDATE findings SET status='fixed', last_resolved_at=?, updated_at=? WHERE repo_id=? AND status='open' AND fingerprint <> ''`
+	if len(seenFingerprints) > 0 {
+		placeholders := make([]byte, 0, len(seenFingerprints)*2)
+		for i := range seenFingerprints {
+			if i > 0 {
+				placeholders = append(placeholders, ',')
+			}
+			placeholders = append(placeholders, '?')
+		}
+		q += ` AND fingerprint NOT IN (` + string(placeholders) + `)`
+		for _, fp := range seenFingerprints {
+			args = append(args, fp)
+		}
+	}
+	res, err := s.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 const selectFindingSQL = `SELECT id,repo_id,COALESCE(run_id,''),COALESCE(fingerprint,''),
     title,severity,COALESCE(confidence,''),COALESCE(exploitability,''),
     COALESCE(fix_priority,''),status,COALESCE(cwe,''),COALESCE(cvss_score,0),

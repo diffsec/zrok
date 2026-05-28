@@ -71,6 +71,37 @@ func (s *runStore) UpdateStatus(ctx context.Context, id, status string) error {
 	return err
 }
 
+func (s *runStore) GetByRepoAndHead(ctx context.Context, repoID, headSHA string) (*store.Run, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+runSelectColumns+` FROM runs WHERE repo_id=? AND head_sha=? ORDER BY created_at DESC LIMIT 1`,
+		repoID, headSHA)
+	return scanRun(row)
+}
+
+func (s *runStore) UpdateError(ctx context.Context, id, category, message string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE runs SET error_category=?, error_message=? WHERE id=?`,
+		nullStr(category), nullStr(message), id)
+	return err
+}
+
+func (s *runStore) MarkStarted(ctx context.Context, id string, t time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE runs SET started_at=? WHERE id=? AND started_at IS NULL`, t, id)
+	return err
+}
+
+func (s *runStore) MarkCompleted(ctx context.Context, id, status string, t time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE runs SET status=?, completed_at=? WHERE id=?`, status, t, id)
+	return err
+}
+
+func (s *runStore) Cancel(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE runs SET status='cancelled', completed_at=? WHERE id=? AND status NOT IN ('completed','failed','cancelled')`,
+		time.Now().UTC(), id)
+	return err
+}
+
 const runSelectColumns = `id,repo_id,workflow_version_id,trigger,pr_number,base_sha,head_sha,status,error_category,error_message,triggered_by,created_at,started_at,completed_at`
 
 var runSelectByID = "SELECT " + runSelectColumns + " FROM runs WHERE id=?"

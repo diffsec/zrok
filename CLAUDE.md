@@ -191,3 +191,14 @@ adapter, not a mock.
 
 The evaluation framework still runs against the legacy CLI on
 `legacy-cli`; the SaaS surface gets its own eval harness in a later PR.
+
+## Known gaps (rewrite in progress)
+
+- **In-container agent execution is stubbed.** PR-4 ships the full
+  worker → container → log-streaming → GitHub-feedback pipeline, but
+  `quokka agent run --job-file ...` (the sidecar that should host the
+  `workflow.Executor` inside the container) only emits a few canned
+  NDJSON `TranscriptEvent` lines and exits 0. A PR-4.5 wires the
+  real executor + tool registry so a webhook produces an actual LLM
+  run rather than a placeholder transcript. Until then, "completed"
+  runs are decorative.

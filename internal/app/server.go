@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/diffsec/quokka/internal/store"
 	"github.com/diffsec/quokka/internal/web"
 	"github.com/diffsec/quokka/internal/web/handlers"
+	"github.com/diffsec/quokka/internal/worker/queue"
 	"github.com/spf13/cobra"
 )
 
@@ -58,17 +60,34 @@ func runServer(ctx context.Context, addr, baseURL string) error {
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
+	webhookSecret := os.Getenv("QUOKKA_GITHUB_WEBHOOK_SECRET")
+	q := queue.NewSQLQueue(stores.Jobs)
+	enqueueFn := func(ctx context.Context, jobType string, payload any, key string) (bool, error) {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return false, err
+		}
+		_, ins, err := q.Enqueue(ctx, &queue.Job{
+			Type:           jobType,
+			PayloadJSON:    string(b),
+			IdempotencyKey: key,
+		})
+		return ins, err
+	}
+
 	srv := web.NewServer(web.Config{
-		Addr:          addr,
-		BaseURL:       baseURL,
-		OrgLogin:      orgLogin,
-		AdminLogins:   adminLogins,
-		ClientID:      clientID,
-		ClientSecret:  clientSecret,
-		SecureCookies: false, // computed from BaseURL inside NewServer
-		GitHub:        handlers.NewHTTPGitHubClient(clientID, clientSecret, "", ""),
-		Stores:        stores,
-		Log:           log,
+		Addr:           addr,
+		BaseURL:        baseURL,
+		OrgLogin:       orgLogin,
+		AdminLogins:    adminLogins,
+		ClientID:       clientID,
+		ClientSecret:   clientSecret,
+		SecureCookies:  false, // computed from BaseURL inside NewServer
+		GitHub:         handlers.NewHTTPGitHubClient(clientID, clientSecret, "", ""),
+		Stores:         stores,
+		Log:            log,
+		WebhookSecret:  webhookSecret,
+		WebhookEnqueue: enqueueFn,
 	})
 
 	// Shutdown on SIGINT/SIGTERM.

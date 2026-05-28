@@ -13,6 +13,7 @@ var authSkipPrefixes = []string{
 	"/oauth/callback",
 	"/healthz",
 	"/static/",
+	"/webhooks/",
 }
 
 // RequireAuth redirects anonymous requests to /login?next=<original>.

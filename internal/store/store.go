@@ -55,6 +55,8 @@ type Stores struct {
 	ModelUsage      ModelUsageStore
 	PRFeedback      PRFeedbackStore
 	Audit           AuditStore
+	WebhookLog      GitHubWebhookLogStore
+	Jobs            EnqueuedJobStore
 
 	// Close releases the *sql.DB.
 	closer func() error
@@ -351,6 +353,7 @@ type AgentConfigRevision struct {
 type WorkflowStore interface {
 	Create(ctx context.Context, w *Workflow) error
 	Get(ctx context.Context, id string) (*Workflow, error)
+	GetActiveForRepo(ctx context.Context, orgID, repoID string) (*Workflow, *WorkflowVersion, error)
 	List(ctx context.Context, orgID string) ([]*Workflow, error)
 	NewVersion(ctx context.Context, v *WorkflowVersion) error
 	GetVersion(ctx context.Context, id string) (*WorkflowVersion, error)
@@ -379,8 +382,19 @@ type WorkflowVersion struct {
 type RunStore interface {
 	Create(ctx context.Context, r *Run) error
 	Get(ctx context.Context, id string) (*Run, error)
+	GetByRepoAndHead(ctx context.Context, repoID, headSHA string) (*Run, error)
 	List(ctx context.Context, repoID string, limit, offset int) ([]*Run, error)
 	UpdateStatus(ctx context.Context, id, status string) error
+	UpdateError(ctx context.Context, id, category, message string) error
+	MarkStarted(ctx context.Context, id string, t time.Time) error
+	MarkCompleted(ctx context.Context, id, status string, t time.Time) error
+	// Cancel transitions the run to 'cancelled'. The worker is expected to
+	// observe this via a separate channel (UI-driven cancel signals get
+	// propagated by sending on a per-run done channel registered with the
+	// broadcaster). For PR-4 the store call records the cancellation; the
+	// container Kill path is exercised by RunStore.Cancel + a context
+	// cancellation in the worker.
+	Cancel(ctx context.Context, id string) error
 }
 
 type Run struct {
@@ -416,6 +430,7 @@ type TimelineEvent struct {
 type TranscriptStore interface {
 	Put(ctx context.Context, runID, invocationID, agentName, storageURI, sha256 string, byteSize int64) error
 	List(ctx context.Context, runID string) ([]*Transcript, error)
+	Get(ctx context.Context, id string) (*Transcript, error)
 }
 
 type Transcript struct {
@@ -434,9 +449,14 @@ type FindingStore interface {
 	Get(ctx context.Context, id string) (*FindingRow, error)
 	FindByFingerprintAndCreator(ctx context.Context, repoID, fingerprint, createdBy string) (*FindingRow, error)
 	List(ctx context.Context, repoID string) ([]*FindingRow, error)
+	ListByRun(ctx context.Context, runID string) ([]*FindingRow, error)
 	Update(ctx context.Context, f *FindingRow) error
 	UpdateStatus(ctx context.Context, id, status string) error
 	Delete(ctx context.Context, id string) error
+	// AutoResolveMissing transitions any open findings on repoID whose
+	// fingerprint is NOT in seenIDs to status='fixed' and stamps
+	// last_resolved_at. Returns the number of rows resolved.
+	AutoResolveMissing(ctx context.Context, repoID string, seenFingerprints []string) (int64, error)
 }
 
 type FindingRow struct {
@@ -569,4 +589,55 @@ type PRFeedbackSettings struct {
 
 type AuditStore interface {
 	Append(ctx context.Context, orgID, actorID, action, entity, entityID, payloadJSON string) error
+}
+
+// GitHubWebhookLog persists raw webhook payloads for replay/debug.
+type GitHubWebhookLog struct {
+	ID           string
+	DeliveryID   string
+	EventType    string
+	Action       string
+	PayloadJSON  string
+	Signature    string
+	ReceivedAt   time.Time
+	ProcessedAt  *time.Time
+	ProcessError string
+}
+
+type GitHubWebhookLogStore interface {
+	Append(ctx context.Context, w *GitHubWebhookLog) error
+	Get(ctx context.Context, deliveryID string) (*GitHubWebhookLog, error)
+	MarkProcessed(ctx context.Context, deliveryID, processError string) error
+}
+
+// EnqueuedJob is one row in enqueued_jobs (the SQLite-mode queue).
+type EnqueuedJob struct {
+	ID             string
+	JobType        string
+	PayloadJSON    string
+	IdempotencyKey string
+	Status         string
+	Attempts       int
+	RunAfter       time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	LockedAt       *time.Time
+	LockedBy       string
+	LastError      string
+}
+
+// EnqueuedJobStore is the inproc queue table.
+//
+// Enqueue is idempotent on idempotency_key — when a row with the same key
+// already exists, the existing row is returned and `inserted=false`. Claim
+// performs a transactional UPDATE...RETURNING that atomically moves a row
+// from 'pending' to 'running' and returns it; nil/nil means no row was
+// claimable. Complete/Fail finalize a job.
+type EnqueuedJobStore interface {
+	Enqueue(ctx context.Context, j *EnqueuedJob) (existing *EnqueuedJob, inserted bool, err error)
+	Claim(ctx context.Context, workerID string, now time.Time) (*EnqueuedJob, error)
+	Complete(ctx context.Context, id string) error
+	Fail(ctx context.Context, id string, errMsg string, retry bool) error
+	Get(ctx context.Context, id string) (*EnqueuedJob, error)
+	GetByKey(ctx context.Context, idempotencyKey string) (*EnqueuedJob, error)
 }

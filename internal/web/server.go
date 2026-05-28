@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/diffsec/quokka/internal/github"
 	"github.com/diffsec/quokka/internal/store"
 	"github.com/diffsec/quokka/internal/web/handlers"
 	"github.com/diffsec/quokka/internal/web/middleware"
@@ -35,6 +36,12 @@ type Config struct {
 	WriteTimeout   time.Duration
 	IdleTimeout    time.Duration
 	StaticOverride fs.FS // tests can swap the embed for a no-op
+	// WebhookSecret is the GitHub App webhook signing secret. When set, the
+	// POST /webhooks/github route is wired with HMAC verification.
+	WebhookSecret string
+	// WebhookEnqueue is called by the webhook dispatch to schedule a job.
+	// Typically wired to a queue.Queue.Enqueue closure.
+	WebhookEnqueue github.EnqueueFunc
 }
 
 // Server wraps the http.Server and exposes Start / Shutdown.
@@ -78,6 +85,17 @@ func NewServer(cfg Config) *Server {
 	mux.Handle("/static/", secureHeaders(http.StripPrefix("/static/", http.FileServer(http.FS(sfs)))))
 
 	mux.HandleFunc("/healthz", handlers.Healthz)
+
+	// GitHub webhook receiver. HMAC-signed; bypasses CSRF and RequireAuth
+	// via the existing skip-prefix lists.
+	if cfg.WebhookSecret != "" {
+		wh := &github.WebhookHandler{
+			Secret:  cfg.WebhookSecret,
+			Stores:  cfg.Stores,
+			Enqueue: cfg.WebhookEnqueue,
+		}
+		mux.Handle("/webhooks/github", wh)
+	}
 
 	auth := handlers.NewAuthHandler(handlers.AuthConfig{
 		ClientID:      cfg.ClientID,

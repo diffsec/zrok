@@ -11,6 +11,7 @@ import (
 // signature-protected paths).
 var csrfSkipPrefixes = []string{
 	"/oauth/callback",
+	"/webhooks/",
 }
 
 // CSRF enforces a double-submit cookie check on non-GET/HEAD requests.
