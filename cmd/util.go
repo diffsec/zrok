@@ -106,10 +106,6 @@ All commands output JSON when --json flag is provided.
 - quokka agent prompt <name>   Generate agent prompt
 - quokka agent generate        Generate recommended agents
 
-### Dashboard
-- quokka dashboard             Start web dashboard
-  --port 8080                Dashboard port
-
 ## Finding YAML Format
 
 title: "SQL Injection in user search"
