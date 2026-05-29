@@ -1,124 +1,186 @@
 # quokka Development Guide
 
-quokka is a CLI tool for LLM-assisted code review. It provides agent configurations, memory management, finding tracking, and code navigation tools.
+quokka is being rewritten from a CLI to a self-hosted code-review SaaS.
+The legacy CLI lives on the `legacy-cli` branch (frozen at the pre-rewrite
+tip). `main` is the SaaS line: a single binary at `cmd/quokka/` runs the
+web server, worker, migrator, admin tooling, and in-container agent
+sidecar via cobra subcommands defined under `internal/app/`. All business
+logic lives in pure-Go functions under `internal/<pkg>/operations.go`,
+callable from the in-process tool registry (Brief B) and HTTP handlers
+(Brief C) without going through cobra.
 
 ## Project Structure
 
 ```
 quokka/
-├── cmd/                    # CLI commands (cobra)
-│   ├── root.go            # Root command, global flags
-│   ├── project.go         # init, onboard commands
-│   ├── memory.go          # memory read/write/list/search
-│   ├── finding.go         # finding create/list/show/update/export
-│   ├── agent.go           # agent list/show/prompt/create
-│   ├── navigate.go        # list, find, read, search, symbols
-│   ├── lsp.go             # LSP server management commands
-│   ├── think.go           # think collected/adherence/done/next/hypothesis
-│   ├── dashboard.go       # dashboard server
-│   ├── index.go           # index enable/build/update/status/watch/clear
-│   └── semantic.go        # semantic search commands
-├── eval/                   # Evaluation framework
-│   ├── cmd/               # Scorer CLI (score, baseline, compare)
-│   ├── scorer/            # Scoring package (matching, metrics, baseline)
-│   ├── fixtures/          # Test fixtures (OWASP subset, vulnerable-app)
-│   └── results/           # Run output with manifests
+├── cmd/quokka/main.go      # tiny shim → internal/app.Execute()
+├── db/migrations/          # SQLite + Postgres init schemas (golang-migrate)
+├── eval/                   # Evaluation framework (legacy; unchanged)
 ├── internal/
-│   ├── project/           # Project config, tech detection, classification, onboarding
-│   │   └── configs/       # Embedded classification rules YAML
-│   ├── memory/            # Memory store with bleve full-text search
-│   ├── finding/           # Finding store and exporters (md, sarif, html, csv, json)
-│   ├── agent/             # Agent registry, config, prompt generation, agent suggestion
+│   ├── app/                # cobra subcommands: server, worker, migrate, admin, agent run
+│   ├── web/                # HTTP server (PR-3); templ + middleware + handlers + static
+│   │   ├── server.go
+│   │   ├── middleware/     # session, csrf, auth, logging, recover, request_id
+│   │   ├── handlers/       # auth, repos, runs, findings, healthz
+│   │   ├── templates/      # *.templ + generated *_templ.go
+│   │   ├── webctx/         # request-context key types (no-cycle helper)
+│   │   └── static/         # CSS + JS
+│   ├── store/              # Stores aggregate + interfaces
+│   │   └── sql/{sqlite,postgres}/  # concrete adapters + tests
+│   ├── crypto/             # AES-GCM cipher + keyring (env-driven master key)
+│   ├── project/            # Project config, tech detection, classification, onboarding
+│   │   ├── configs/        # Embedded classification rules YAML
+│   │   └── operations.go   # Init, OnboardAuto, OnboardAgent
+│   ├── memory/             # Memory domain types + operations.go (Read/Write/List/Search/Delete)
+│   ├── finding/            # Finding domain types + operations.go (Create/List/Show/UpdateNote/Triage)
+│   │   └── export/         # Format exporters (md, sarif, html, csv, json) + Export op
+│   ├── exception/          # Exception types + operations.go (Add/Remove/List/Match)
+│   ├── agent/              # Agent registry/config + operations.go (List/Show/Prompt/Suggest)
 │   │   └── configs/agents/ # Agent YAML configs with applicability rules
-│   ├── navigate/          # File operations, symbol extraction
-│   │   └── lsp/           # LSP client for language server symbol extraction
-│   ├── treesitter/        # Tree-sitter parser (gotreesitter v0.13.4, pooled parsing)
-│   ├── think/             # Thinking prompt templates
-│   ├── dashboard/         # Web dashboard server
-│   ├── skill/             # Embedded skill installer (go:embed)
-│   ├── chunk/             # Code chunking for semantic search
-│   ├── embedding/         # Embedding providers (Ollama, OpenAI, Hugging Face)
-│   ├── vectordb/          # Vector storage (HNSW + SQLite)
-│   └── semantic/          # Semantic search engine
-├── skills/                # Claude Code skills for using quokka
-│   └── code-review/       # Code review orchestration skill
-└── configs/               # External configuration files (planned)
-    ├── agents/            # Agent YAML configs
-    └── prompts/           # Prompt templates
+│   ├── navigate/           # File ops + operations.go (List/Read/Find/Search/Symbols)
+│   │   └── lsp/            # LSP client
+│   ├── treesitter/         # Tree-sitter parser (gotreesitter v0.13.4)
+│   ├── think/              # Thinking prompt generators (prompts.go) + operations.go
+│   ├── skill/              # Embedded skill installer (go:embed)
+│   ├── chunk/              # Code chunking for semantic search
+│   ├── embedding/          # Embedding providers (Ollama, OpenAI, Hugging Face)
+│   ├── vectordb/           # HNSW + SQLite; registry.go opens per-repo
+│   ├── semantic/           # Semantic search engine + operations.go (Search/Related)
+│   ├── rule/               # Detection-rule registry (still in flux; ops surface TBD in PR-2)
+│   ├── sast/               # opengrep wrapper (still in flux; ops surface TBD in PR-2)
+│   └── runner/             # Legacy external-orchestrator dispatcher (deprecated; kept for legacy-cli back-compat only)
+├── skills/                 # Claude Code skills (legacy-cli only; SaaS uses agentloop/tools in Brief B)
+└── configs/                # External configuration files (planned)
 ```
+
+Business-function contract: every `operations.go` function takes a
+`context.Context`, the relevant `store.<Whatever>Store` interface, and a
+request struct. No global state, no `os.Stdout` writes, no cobra. Brief
+B's tool registry and Brief C's HTTP handlers call these functions
+directly.
 
 ## Building
 
 ```bash
-go build -o quokka .
-go test ./...
+go build ./cmd/quokka          # produces the SaaS binary
+go test ./...                  # all unit tests
+go test -short ./...           # skips testcontainers-backed Postgres tests
 ```
 
 ## Key Components
 
+### Storage (`internal/store/`)
+- `store.go` — `Stores` aggregate; interfaces for every persistent table
+  (Orgs, Users, Sessions, OAuth, Installations, Repos, Providers,
+  ProviderModels, AgentConfigs, Workflows, Runs, Events, Transcripts,
+  Findings, FindingActions, Memories, Exceptions, ModelUsage,
+  PRFeedback, Audit).
+- `sql/sqlite/` and `sql/postgres/` — concrete impls; both register
+  their builder via `init()`.
+- Concrete impls live for: Orgs, Users, Sessions, OAuth, Repos, Runs,
+  Providers, Findings, FindingActions, Memories, Exceptions. The rest
+  (Installations, ProviderModels, AgentConfigs, Workflows, Events,
+  Transcripts, ModelUsage, PRFeedback, Audit) are stubs filled in by
+  PR-4/PR-5 as features arrive.
+
 ### Agent System (`internal/agent/`)
-- `registry.go` - Built-in agent definitions, `SuggestAgents()` classification-based selection
-- `config.go` - Agent configuration types with `ApplicabilityRule` for project-type matching
-- `prompt.go` - Prompt generation with project context
-- `configs/agents/*.yaml` - Agent definitions with `applicability:` (always_include, project_types, project_traits)
+- `registry.go` — Built-in agent definitions, `SuggestAgents()`
+  classification-based selection.
+- `config.go` — `AgentConfig`, `ApplicabilityRule`, project-type matching.
+- `prompt.go` — Prompt generator that takes a `MemoryReader` interface
+  (any store with `ReadByName(name string) (*memory.Memory, error)`
+  satisfies it; `memory.ReaderAdapter` wraps a SQL `MemoryStore`).
+- `operations.go` — `List`, `Show`, `Prompt`, `Suggest` for the tool
+  registry.
 
-### Memory Store (`internal/memory/`)
-- `store.go` - YAML-based memory persistence in `.quokka/memories/`
-- `index.go` - Bleve full-text search index
-- Types: `context`, `pattern`, `stack`
+### Findings (`internal/finding/`)
+- `types.go` — `Finding`, `Severity`, `Confidence`, etc.
+- `fingerprint.go` — Stable per-finding hash.
+- `operations.go` — `Create` (with per-creator dedup), `List`, `Show`,
+  `UpdateNote`, `Triage`. `findingToRow`/`rowToFinding` move between
+  the domain type and the SQL row shape.
+- `export/operations.go` — `Export` that reuses `finding.List` then
+  renders to the selected format (md, sarif, html, csv, json).
 
-### Finding Store (`internal/finding/`)
-- `store.go` - YAML-based finding persistence in `.quokka/findings/`
-- `export/` - Multiple export formats (markdown, SARIF, HTML, CSV, JSON)
-- Severity levels: `critical`, `high`, `medium`, `low`, `info`
+### Memory (`internal/memory/`)
+- `types.go` — `Memory`, `MemoryType`.
+- `operations.go` — `Write` (upsert), `Read`, `List`, `Search`, `Delete`.
+  `ReaderAdapter` exposes `agent.MemoryReader` against a SQL store.
+
+### Exceptions (`internal/exception/`)
+- `types.go` — `Exception` with `Fingerprint` XOR `(PathGlob, CWE,
+  AgentName)`. The `AgentName` axis was added in PR-1B.
+- `operations.go` — `Add`, `Remove`, `List`, `Match`.
 
 ### Navigation (`internal/navigate/`)
-- `lister.go` - Directory listing with depth control
-- `finder.go` - Glob pattern file finding
-- `reader.go` - File reading with line ranges
-- `symbols.go` - Code symbol extraction (tree-sitter → LSP → regex fallback)
-- `lsp/` - LSP client for language server integration
+- `lister.go`, `finder.go`, `reader.go`, `symbols.go` — primitives.
+- `operations.go` — `List`, `Read`, `Find`, `Search`, `Symbols` for the
+  tool registry.
 
-### Semantic Search (`internal/semantic/`, `internal/chunk/`, `internal/embedding/`, `internal/vectordb/`)
-- `chunk/` - Code chunking using tree-sitter (via gotreesitter pooled parsing) with LSP and regex fallback
-- `embedding/` - Embedding providers (Ollama, OpenAI, Hugging Face)
-- `vectordb/` - HNSW vector index with SQLite metadata
-- `semantic/` - Search coordinator with multi-hop exploration
+### Semantic Search (`internal/semantic/`)
+- `search.go`, `multihop.go` — primitives.
+- `operations.go` — `Search`, `Related`.
+- Backed by `internal/vectordb/` (HNSW + per-repo SQLite metastore via
+  `vectordb.Registry`).
 
 ### Project Config (`internal/project/`)
-- `config.go` - Project configuration, `ProjectClassification`, `ApplicabilityRule` types
-- `detector.go` - Tech stack auto-detection (languages, frameworks, databases, auth, infrastructure)
-- `classifier.go` - Infers project types (web-app, api-service, cli-tool, library, worker) and traits (has-datastore, has-auth, etc.) from detected tech stack
-- `configs/classification_rules.yaml` - Data-driven rules mapping framework keywords to project types (extensible without code changes)
-- `onboard.go` - Interactive and auto onboarding, invokes classifier
+- `config.go`, `detector.go`, `classifier.go`, `onboard.go` — existing.
+- `operations.go` — `Init`, `OnboardAuto`, `OnboardAgent` (the
+  interactive `RunWizard` retired with the legacy CLI).
+
+### Think prompts (`internal/think/`)
+- `prompts.go` — `ThinkingResult`, `ThinkingVerb`.
+- `operations.go` — `Prompt(verb)` renders one of the parametric
+  thinking-prompt bodies (collected, adherence, done, next, hypothesis,
+  validate, dataflow). Brief B exposes one tool per verb.
+
+### Web (`internal/web/`)
+- `server.go` — http.Server wrapper; composes middleware (request_id →
+  recover → logging → secure_headers → session → csrf → require_auth),
+  registers routes, embeds `static/`.
+- `middleware/` — session reads `q_session` cookie, slides `expires_at`
+  by 30d, sets fresh cookie; CSRF is double-submit (`q_csrf` cookie
+  vs `X-CSRF-Token` header or `csrf_token` form field).
+- `handlers/` — `auth.go` runs the GitHub OAuth handshake (env-driven
+  `QUOKKA_GITHUB_APP_CLIENT_ID`, `_CLIENT_SECRET`, `QUOKKA_GITHUB_ORG`,
+  `QUOKKA_ADMIN_LOGINS`). `github_client.go` defines the narrow
+  `GitHubClient` interface; tests use a fake, prod uses the http impl.
+  PR-4 will fold this into `internal/github/` for App auth.
+- `templates/` — a-h/templ source files (`.templ`) and generated
+  siblings (`*_templ.go`). Both are committed. Regenerate with
+  `templ generate -path internal/web/templates`. `mise.toml` pins the
+  CLI version; `templates.go` carries the `//go:generate` directive.
+- Run locally: `QUOKKA_MASTER_KEY=$(openssl rand -base64 32) \
+  quokka server --addr :8080 --base-url http://localhost:8080 \
+  --dsn 'sqlite:///tmp/q.db' --data-root /tmp/qd`.
 
 ## Adding New Features
 
 ### New Agent
-1. Add agent definition in `internal/agent/registry.go`
-2. Or create YAML in `configs/agents/` (when implemented)
+1. Add YAML in `internal/agent/configs/agents/` (loaded via go:embed) or
+   in the connected repo's `.quokka/agents/` (loaded at run start).
+2. Tests under `internal/agent/`.
 
 ### New Export Format
-1. Create exporter in `internal/finding/export/`
-2. Implement `Exporter` interface
-3. Register in `export.go`
+1. Create exporter in `internal/finding/export/`.
+2. Implement the `Exporter` interface.
+3. Register in `export.go`.
 
-### New CLI Command
-1. Create command file in `cmd/`
-2. Add to root command in `cmd/root.go`
+### New SaaS Subcommand
+1. Add a `newXxxCmd()` constructor in `internal/app/`.
+2. Register in `internal/app/root.go`'s `init()`.
 
 ## Testing
 
 ```bash
-# Run all tests
-go test ./...
-
-# Run specific package tests
-go test ./internal/finding/...
-
-# With coverage
-go test -cover ./...
+go test ./...                   # all tests (Postgres uses testcontainers)
+go test -short ./...            # skip Postgres testcontainers
+go test ./internal/store/...    # storage layer only
 ```
+
+Operations tests live next to each `operations.go` and spin up an
+in-process SQLite-backed `Stores` aggregate so they exercise the real
+adapter, not a mock.
 
 ## Evaluation
 
@@ -127,38 +189,103 @@ go test -cover ./...
 ./eval/run.sh --fixture owasp -n 10 --baseline # Generate baseline from N runs
 ```
 
-Run manifests (`run-NN-manifest.json`) capture agent usage and execution metadata.
+The evaluation framework still runs against the legacy CLI on
+`legacy-cli`; the SaaS surface gets its own eval harness in a later PR.
 
-## Semantic Search
+## Worker ↔ sidecar boundary
 
-quokka includes semantic code search using vector embeddings. This enables natural language queries against the codebase.
+PR-4.5 wired the real in-container executor. The split:
 
-### Setup
-```bash
-# Enable with Ollama (local, free)
-quokka index enable --provider ollama
-ollama pull nomic-embed-text  # If not already installed
+- **Host worker** (`internal/worker/jobs/run_pr.go`): claims a job,
+  clones the repo at the PR head, generates a per-run RPC token and
+  socket file under `os.MkdirTemp` (kept short for sockaddr_un), spawns
+  a `storerpc.Server` bound to (token, run_id, org_id, repo_id), builds
+  a `jobs.JobSpec` (workflow YAML, agent set, classification, paths,
+  RPC token), assembles a `container.ContainerSpec` with the socket
+  bind-mounted at `/var/run/quokka.sock` and provider env vars
+  (`QUOKKA_PROVIDER_<LABEL>_KEY`/`_BASE_URL`/`_PROTOCOL`) injected,
+  spawns the runner container, drains NDJSON stdout through `DBSink` +
+  `Broadcaster`, and runs the GitHub feedback writers.
+- **In-container sidecar** (`internal/app/agent_run.go`): reads
+  `/job/spec.json`, dials the RPC socket with the token, builds a
+  synthetic `*store.Stores` whose `Findings`, `Memories`, and
+  `Exceptions` are RPC-backed clients, constructs an `llm.Provider`
+  from the injected env vars, parses the workflow YAML, drives
+  `workflow.Executor.Run` against `/workspace` (the cloned repo) and
+  `/state` (per-repo embedding volume), and emits one NDJSON
+  `TranscriptEvent` per line to stdout.
 
-# Or use Hugging Face (cloud, free tier)
-export HF_API_KEY=your_key
-quokka index enable --provider huggingface
+The sidecar has zero filesystem access outside `/workspace` + `/state`,
+zero DB access except through the RPC, and only outbound HTTPS for the
+LLM (via the egress allowlist, doc-only in PR-4). The RPC server
+enforces a method allowlist (`storerpc.AllowedMethods`) and rejects
+calls whose repo_id arg doesn't match the run's authorized repo —
+defense in depth on top of the per-run socket.
 
-# Or use OpenAI (cloud, paid)
-export OPENAI_API_KEY=your_key
-quokka index enable --provider openai
+`RunSidecar(ctx, *jobs.JobSpec, *storerpc.Client, ProviderFactory,
+io.Writer)` is the exported sidecar entry point. The new
+`run_pr_test.go` variant `TestRunPRRealEndToEndWithInProcessSidecar`
+exercises the full pipeline by replacing the `container.Runtime` with
+an in-process Runtime that calls `RunSidecar` directly against the
+worker's real socket using a fake LLM scripted to emit a
+`finding_create` tool call.
 
-# Build the index
-quokka index build
-```
+## SaaS rewrite verification status
 
-### Usage
-```bash
-quokka semantic "authentication middleware"     # Natural language search
-quokka semantic "SQL injection" --multi-hop     # Explore related code
-quokka semantic "error handling" --type function
-quokka semantic related cmd/index.go            # Find related code
-```
+Verified locally (without Docker / GitHub App / real LLM keys):
 
-## Skills
+- `go build ./cmd/quokka` succeeds; binary lists `admin/agent/migrate/
+  server/worker`.
+- `quokka migrate up` against an empty SQLite DSN creates all 25 tables
+  (incl. FTS5 for memories); `migrate down` rolls back cleanly.
+- `quokka migrate` against Postgres works via the testcontainers test
+  in `db/migrations/`.
+- `quokka server` boots, serves `/healthz` 200 with secure headers
+  (CSP, X-Frame-Options, etc.), renders the templ login page, and
+  redirects anon `/repos` to `/login?next=/repos`.
+- `go test -count=1 -short ./...` is green across all 35 packages
+  including: SSE replay + live broadcast, triage CRUD + bulk + CSRF,
+  provider encrypt + test + discovery, agent editor versioning,
+  workflow YAML validate, per-repo settings, auto-resolve + re-emerge,
+  webhook signature + dispatch + idempotency, container lifecycle
+  (skips without Docker), full RunPR end-to-end with fake runtime +
+  fake LLM (real RPC socket, real DB rows, real GitHub feedback
+  writers).
+- `golangci-lint run` is clean (errcheck/govet/staticcheck/unused).
+- The `legacy-cli` branch at commit `656886a` still builds and runs;
+  `LEGACY.md` flags it as frozen.
 
-The `skills/` directory contains Claude Code skills for using quokka. See `skills/code-review/SKILL.md` for the code review orchestration skill that spawns specialized subagents.
+Blocked on external setup (must be exercised manually before private
+preview):
+
+- `make runner-image` and `docker compose up` — Docker daemon required.
+- Real GitHub App registration: `QUOKKA_GITHUB_APP_ID`,
+  `_CLIENT_ID`, `_CLIENT_SECRET`, `_PRIVATE_KEY_FILE`,
+  `_WEBHOOK_SECRET`. Without these the OAuth handshake, webhook HMAC
+  verify, and the App-installation token cache are unexercised against
+  the live API.
+- Real LLM provider keys (`ANTHROPIC_API_KEY` or an
+  openai-compatible key + base URL). Without these, no real agent
+  run end-to-end.
+- A test repo with `.quokka/agents/*.yaml` to exercise
+  `InstallRepo` config import against a live clone.
+
+Carried gaps tracked for follow-up PRs:
+
+- **Cross-process broadcaster**: in Compose mode, the worker and the
+  server each create their own `transcript.NewBroadcaster()`; the
+  worker's live events never reach the server's SSE subscribers.
+  Completed-run replay from DB still works. Redis pub/sub fanout is
+  the v2 fix.
+- **Per-slot HTML fragment SSE swaps**: the SSE handler currently
+  emits the raw `TranscriptEvent` JSON. The run-view's `sse-swap`
+  targets exist but the server doesn't yet render templ fragments
+  tagged `agent-{slot}`. PR-6 follow-up.
+- **Workflow editor**: shipped as a YAML textarea + Save/Activate.
+  The Sortable.js phase-card UX is wired in `static/js/app.js` but
+  the per-phase card markup in `workflow_editor.templ` is the
+  follow-up to replace the textarea.
+- **Egress allowlist sidecar**: documented-only in
+  `internal/agentruntime/container/network.go`. v2.
+- **Asynq queue**: SQL queue covers solo and Compose modes today. A
+  Redis-backed asynq variant can land when scale demands it.

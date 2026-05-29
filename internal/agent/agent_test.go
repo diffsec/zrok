@@ -226,10 +226,10 @@ func TestConfigManagerCreate(t *testing.T) {
 	manager := NewConfigManager(p, "")
 
 	config := &AgentConfig{
-		Name:        "custom-agent",
-		Description: "A custom test agent",
-		Phase:       PhaseAnalysis,
-		ToolsAllowed: []string{"read", "search"},
+		Name:           "custom-agent",
+		Description:    "A custom test agent",
+		Phase:          PhaseAnalysis,
+		ToolsAllowed:   []string{"read", "search"},
 		PromptTemplate: "You are a custom agent.",
 	}
 
@@ -318,22 +318,19 @@ func TestPromptGeneratorGenerate(t *testing.T) {
 	p, cleanup := setupTestProject(t)
 	defer cleanup()
 
-	memStore := memory.NewStore(p)
-
-	// Create a test memory
-	mem := &memory.Memory{
+	memStore := newFakeMemory()
+	memStore.put(&memory.Memory{
 		Name:    "project_overview",
 		Type:    memory.MemoryTypeContext,
 		Content: "This is a test project overview.",
-	}
-	_ = memStore.Create(mem)
+	})
 
 	generator := NewPromptGenerator(p, memStore)
 
 	config := &AgentConfig{
-		Name:        "test-agent",
-		Description: "Test agent",
-		Phase:       PhaseAnalysis,
+		Name:         "test-agent",
+		Description:  "Test agent",
+		Phase:        PhaseAnalysis,
 		ToolsAllowed: []string{"read", "search", "memory"},
 		PromptTemplate: `Agent: {{.AgentName}}
 Project: {{.ProjectName}}
@@ -672,17 +669,13 @@ func TestBuildPromptDataMemoryTruncation(t *testing.T) {
 	p, cleanup := setupTestProject(t)
 	defer cleanup()
 
-	memStore := memory.NewStore(p)
-
-	// Create a memory larger than DefaultMaxMemoryBytes
+	memStore := newFakeMemory()
 	largeContent := strings.Repeat("A", DefaultMaxMemoryBytes+1000)
-	mem := &memory.Memory{
+	memStore.put(&memory.Memory{
 		Name:    "big_memory",
 		Type:    memory.MemoryTypeContext,
 		Content: largeContent,
-	}
-	_ = memStore.Create(mem)
-
+	})
 	generator := NewPromptGenerator(p, memStore)
 
 	config := &AgentConfig{

@@ -1,0 +1,40 @@
+package templates
+
+templ Nav(p PageData) {
+	<nav class="sidebar">
+		<div class="brand"><a href="/repos">quokka</a></div>
+		if p.User != nil {
+			<div class="user">
+				if p.User.AvatarURL != "" {
+					<img src={ p.User.AvatarURL } alt=""/>
+				}
+				<span class="login">{ p.User.GitHubLogin }</span>
+				<span class="role">{ p.User.Role }</span>
+			</div>
+			<div class="nav-section">
+				<div class="nav-section-title">Repositories</div>
+				<ul class="repos">
+					for _, r := range p.NavRepos {
+						<li><a href={ templ.URL("/repos/" + r.ID) }>{ r.FullName }</a></li>
+					}
+				</ul>
+			</div>
+			if p.User.Role == "admin" {
+				<div class="nav-section">
+					<div class="nav-section-title">Configure</div>
+					<ul class="nav-links">
+						<li><a href="/agents">Agents</a></li>
+						<li><a href="/workflows">Workflows</a></li>
+						<li><a href="/providers">Providers</a></li>
+						<li><a href="/users">Users</a></li>
+						<li><a href="/settings">Settings</a></li>
+					</ul>
+				</div>
+			}
+			<form method="post" action="/logout" class="logout">
+				<input type="hidden" name="csrf_token" value={ p.CSRFToken }/>
+				<button type="submit">Sign out</button>
+			</form>
+		}
+	</nav>
+}

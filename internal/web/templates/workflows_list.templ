@@ -1,0 +1,30 @@
+package templates
+
+templ WorkflowsList(v WorkflowsListView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Workflows</h1>
+		</header>
+		if len(v.Workflows) == 0 {
+			<p class="empty">No workflows yet. PR-4 seeds an org default on first run.</p>
+		} else {
+			<table>
+				<thead><tr><th>Name</th><th>Repo override</th></tr></thead>
+				<tbody>
+					for _, w := range v.Workflows {
+						<tr>
+							<td><a href={ templ.URL("/workflows/" + w.ID) }>{ w.Name }</a></td>
+							<td>
+								if w.RepoID != "" {
+									repo-scoped
+								} else {
+									org-default
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	}
+}

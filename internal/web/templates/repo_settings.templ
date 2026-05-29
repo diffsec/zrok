@@ -1,0 +1,75 @@
+package templates
+
+templ RepoSettings(v RepoSettingsView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Settings &mdash; { v.Repo.FullName }</h1>
+			<nav class="subnav">
+				<a href={ templ.URL("/repos/" + v.Repo.ID) }>Overview</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/runs") }>Runs</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/findings") }>Findings</a>
+				<a class="active" href={ templ.URL("/repos/" + v.Repo.ID + "/settings") }>Settings</a>
+			</nav>
+		</header>
+
+		<form method="post" action={ templ.URL("/repos/" + v.Repo.ID + "/settings") } class="form-grid">
+			<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+			<h2 style="grid-column:1/-1">PR Feedback</h2>
+			<label>Check Run</label>
+			<input type="checkbox" name="check_run"
+				if v.Settings.CheckRunEnabled { checked }
+			/>
+			<label>Inline review comments</label>
+			<input type="checkbox" name="inline_comments"
+				if v.Settings.InlineCommentsEnabled { checked }
+			/>
+			<label>Summary comment</label>
+			<input type="checkbox" name="summary_comment"
+				if v.Settings.SummaryCommentEnabled { checked }
+			/>
+			<label>Inline severity threshold</label>
+			<select name="severity_threshold">
+				for _, s := range []string{"", "low", "medium", "high", "critical"} {
+					if v.Settings.InlineSeverityThreshold == s {
+						<option value={ s } selected>
+							if s == "" {
+								(any)
+							} else {
+								{ s }
+							}
+						</option>
+					} else {
+						<option value={ s }>
+							if s == "" {
+								(any)
+							} else {
+								{ s }
+							}
+						</option>
+					}
+				}
+			</select>
+
+			<h2 style="grid-column:1/-1">Workflow override</h2>
+			<label>Workflow</label>
+			<select name="workflow_id">
+				<option value="">org default</option>
+				for _, w := range v.Workflows {
+					<option value={ w.ID }>{ w.Name }</option>
+				}
+			</select>
+
+			<h2 style="grid-column:1/-1">State</h2>
+			<label>Indexing</label>
+			<div class="muted">{ v.Repo.State }
+				if v.Repo.LastIndexedSHA != "" {
+					&middot; last indexed at { v.Repo.LastIndexedSHA }
+				}
+			</div>
+
+			<div class="actions" style="grid-column:1/-1">
+				<button type="submit" class="btn btn-primary">Save</button>
+			</div>
+		</form>
+	}
+}

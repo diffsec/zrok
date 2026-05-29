@@ -1,0 +1,28 @@
+package templates
+
+templ WorkflowEditor(v WorkflowEditorView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>{ v.Workflow.Name }</h1>
+			<nav class="subnav"><a href="/workflows">← Workflows</a></nav>
+		</header>
+		if v.Error != "" {
+			<p class="error-msg">{ v.Error }</p>
+		}
+		<form method="post" action={ templ.URL("/workflows/" + v.Workflow.ID) } class="form-grid">
+			<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+			<label style="grid-column:1/-1">YAML</label>
+			<textarea name="yaml" rows="24" style="grid-column:1/-1; font-family: ui-monospace, monospace;">{ v.YAML }</textarea>
+			<div class="actions" style="grid-column:1/-1">
+				<button type="submit" class="btn btn-primary">Save new version</button>
+				if v.Version != nil {
+					<form method="post" action={ templ.URL("/workflows/" + v.Workflow.ID + "/activate") } style="display:inline">
+						<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+						<input type="hidden" name="version_id" value={ v.Version.ID }/>
+						<button type="submit" class="btn">Activate current</button>
+					</form>
+				}
+			</div>
+		</form>
+	}
+}

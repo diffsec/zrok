@@ -1,0 +1,74 @@
+package templates
+
+import "strconv"
+
+templ RunPage(v RunView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Run { shortSHA(v.Run.ID) }</h1>
+			<nav class="subnav">
+				<a href={ templ.URL("/repos/" + v.Repo.ID) }>Overview</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/runs") }>Runs</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/findings") }>Findings</a>
+			</nav>
+			<div class="run-meta">
+				<span class={ "status status-" + v.Run.Status }>{ v.Run.Status }</span>
+				<span class="trigger">{ v.Run.Trigger }</span>
+				if v.Run.PRNumber > 0 {
+					<span class="pr">PR #{ strconv.Itoa(v.Run.PRNumber) }</span>
+				}
+				if v.Run.HeadSHA != "" {
+					<span class="sha">{ shortSHA(v.Run.HeadSHA) }</span>
+				}
+			</div>
+		</header>
+
+		<div class="run-layout">
+			<section class="run-timeline" id="run-timeline"
+				hx-ext="sse"
+				sse-connect={ "/repos/" + v.Repo.ID + "/runs/" + v.Run.ID + "/events" }
+				sse-swap="phase_start,phase_end,agent_start,agent_end,run_completed,run_failed,run_cancelled"
+				hx-swap="none"
+			>
+				@RunTimelineCard(v)
+			</section>
+
+			<aside id="transcript-slot">
+				<div class="transcript-drawer">
+					<h3>Transcript</h3>
+					<p class="muted">Click an agent card to load its transcript.</p>
+				</div>
+			</aside>
+		</div>
+
+		<section class="run-findings">
+			<h2>Findings <span class="count">({ strconv.Itoa(len(v.Findings)) })</span></h2>
+			if len(v.Findings) == 0 {
+				<p class="empty">No findings recorded for this run.</p>
+			} else {
+				<table class="findings-table">
+					<thead>
+						<tr><th>Severity</th><th>Title</th><th>File</th><th>Status</th></tr>
+					</thead>
+					<tbody>
+						for _, f := range v.Findings {
+							<tr>
+								<td><span class={ "sev sev-" + f.Severity }>{ f.Severity }</span></td>
+								<td>
+									<a href={ templ.URL("/repos/" + v.Repo.ID + "/findings/" + f.ID) }>{ f.Title }</a>
+								</td>
+								<td class="path">
+									{ f.File }
+									if f.LineStart > 0 {
+										:{ strconv.Itoa(f.LineStart) }
+									}
+								</td>
+								<td>{ f.Status }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</section>
+	}
+}

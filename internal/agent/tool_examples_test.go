@@ -3,8 +3,6 @@ package agent
 import (
 	"strings"
 	"testing"
-
-	"github.com/diffsec/quokka/internal/memory"
 )
 
 // TestToolExamplesContainRequiredFlags asserts that every centralized
@@ -193,7 +191,7 @@ func TestAnalysisAgentPromptsContainExemplars(t *testing.T) {
 	p, cleanup := setupTestProject(t)
 	defer cleanup()
 
-	memStore := memory.NewStore(p)
+	memStore := newFakeMemory()
 	gen := NewPromptGenerator(p, memStore)
 
 	agents := GetBuiltinAgents()

@@ -1,0 +1,93 @@
+package templates
+
+import (
+	"strconv"
+
+	"github.com/diffsec/quokka/internal/store"
+)
+
+templ RunsList(v RunsListView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Runs &mdash; { v.Repo.FullName }</h1>
+			<nav class="subnav">
+				<a href={ templ.URL("/repos/" + v.Repo.ID) }>Overview</a>
+				<a class="active" href={ templ.URL("/repos/" + v.Repo.ID + "/runs") }>Runs</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/findings") }>Findings</a>
+			</nav>
+		</header>
+		if len(v.Runs) == 0 {
+			<p class="empty">No runs yet.</p>
+		} else {
+			<table class="runs-table">
+				<thead>
+					<tr>
+						<th>Status</th>
+						<th>Trigger</th>
+						<th>PR / Branch</th>
+						<th>Head</th>
+						<th>Started</th>
+						<th>Duration</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, r := range v.Runs {
+						<tr>
+							<td><span class={ "status status-" + r.Status }>{ r.Status }</span></td>
+							<td>{ r.Trigger }</td>
+							<td>
+								if r.PRNumber > 0 {
+									{ "#" + strconv.Itoa(r.PRNumber) }
+								} else {
+									<span class="muted">&mdash;</span>
+								}
+							</td>
+							<td class="sha">{ shortSHA(r.HeadSHA) }</td>
+							<td>{ FormatTimeAgo(r.CreatedAt) }</td>
+							<td>{ runDuration(r) }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+			<nav class="pagination">
+				if v.Offset > 0 {
+					<a href={ templ.URL("/repos/" + v.Repo.ID + "/runs?offset=" + strconv.Itoa(maxInt(0, v.Offset-v.Limit))) }>Prev</a>
+				}
+				if len(v.Runs) == v.Limit {
+					<a href={ templ.URL("/repos/" + v.Repo.ID + "/runs?offset=" + strconv.Itoa(v.Offset+v.Limit)) }>Next</a>
+				}
+			</nav>
+		}
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func runDuration(r *store.Run) string {
+	if r.StartedAt == nil {
+		return ""
+	}
+	end := r.CompletedAt
+	if end == nil {
+		return "in progress"
+	}
+	d := end.Sub(*r.StartedAt)
+	if d < 0 {
+		return ""
+	}
+	if d < 60 {
+		return "<1s"
+	}
+	secs := int(d.Seconds())
+	if secs < 60 {
+		return strconv.Itoa(secs) + "s"
+	}
+	mins := secs / 60
+	secs = secs % 60
+	return strconv.Itoa(mins) + "m" + strconv.Itoa(secs) + "s"
+}

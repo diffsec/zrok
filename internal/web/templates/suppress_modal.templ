@@ -1,0 +1,40 @@
+package templates
+
+import "fmt"
+
+templ SuppressModal(v ModalView) {
+	<dialog>
+		<form method="post" hx-post={ "/repos/" + v.RepoID + "/findings/" + v.FindingID + "/suppress" } hx-swap="none">
+			<input type="hidden" name="csrf_token" value={ v.CSRFToken }/>
+			<div class="modal-header"><h3>Suppress by rule</h3></div>
+			<div class="modal-body" x-data={ suppressAlpineState(v.Suppress) }>
+				<label>Axis
+					<select name="axis" x-model="axis" x-on:change="value = prefill[axis] || ''">
+						<option value="fingerprint">Fingerprint</option>
+						<option value="path_glob">Path glob</option>
+						<option value="cwe">CWE</option>
+						<option value="agent_name">Agent name</option>
+					</select>
+				</label>
+				<label>Value
+					<input type="text" name="value" required x-model="value"/>
+				</label>
+				<label>Reason
+					<textarea name="reason" required></textarea>
+				</label>
+				<label>Expires
+					<input type="date" name="expires" value={ defaultSuppressExpiry() }/>
+				</label>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn" data-close-modal>Cancel</button>
+				<button type="submit" class="btn btn-primary">Suppress</button>
+			</div>
+		</form>
+	</dialog>
+}
+
+func suppressAlpineState(p SuppressPrefill) string {
+	return fmt.Sprintf(`{ axis: 'fingerprint', value: %q, prefill: { fingerprint: %q, path_glob: %q, cwe: %q, agent_name: '' } }`,
+		p.Fingerprint, p.Fingerprint, p.PathGlob, p.CWE)
+}

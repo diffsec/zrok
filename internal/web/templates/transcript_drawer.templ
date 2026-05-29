@@ -1,0 +1,53 @@
+package templates
+
+import "strconv"
+
+// TranscriptLine is one parsed NDJSON entry from a per-agent log file.
+type TranscriptLine struct {
+	Seq     int
+	TS      string
+	Kind    string
+	Payload string
+}
+
+// TranscriptDrawerView seeds the slide-in drawer partial.
+type TranscriptDrawerView struct {
+	RepoID    string
+	RunID     string
+	AgentName string
+	Lines     []TranscriptLine
+	Live      bool
+}
+
+templ TranscriptDrawer(v TranscriptDrawerView) {
+	<div class="transcript-drawer" id={ "drawer-" + v.AgentName }
+		if v.Live {
+			hx-ext="sse"
+			sse-connect={ "/repos/" + v.RepoID + "/runs/" + v.RunID + "/events" }
+		}
+	>
+		<h3>{ v.AgentName }
+			if v.Live {
+				<span class="status status-running">live</span>
+			}
+		</h3>
+		<div class="transcript-lines">
+			for _, l := range v.Lines {
+				@transcriptLine(l)
+			}
+		</div>
+		if v.Live {
+			<div class="transcript-live"
+				sse-swap={ "tool_call,tool_result,assistant_text,error" }
+				hx-swap="beforeend">
+			</div>
+		}
+	</div>
+}
+
+templ transcriptLine(l TranscriptLine) {
+	<div class={ "transcript-line", "kind-" + l.Kind }>
+		<div class="meta">#{ strconv.Itoa(l.Seq) } { l.TS } { l.Kind }</div>
+		<div class="body">{ l.Payload }</div>
+	</div>
+}

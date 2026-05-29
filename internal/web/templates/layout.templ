@@ -1,0 +1,29 @@
+package templates
+
+templ Layout(p PageData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="csrf-token" content={ p.CSRFToken }/>
+			<title>{ p.Title } &middot; quokka</title>
+			<link rel="stylesheet" href="/static/css/app.css"/>
+			<script src="/static/js/vendor/htmx.min.js" defer></script>
+			<script src="/static/js/vendor/htmx-sse.js" defer></script>
+			<script src="/static/js/vendor/sortable.min.js" defer></script>
+			<script src="/static/js/vendor/alpine.min.js" defer></script>
+			<script src="/static/js/app.js" defer></script>
+		</head>
+		<body hx-ext="sse">
+			<div class="app">
+				@Nav(p)
+				<main class="main">
+					{ children... }
+				</main>
+			</div>
+			<div id="modal-slot" aria-live="polite"></div>
+			<div id="toast-slot" aria-live="polite"></div>
+		</body>
+	</html>
+}

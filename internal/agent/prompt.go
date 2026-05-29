@@ -8,9 +8,18 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/diffsec/quokka/internal/llm"
 	"github.com/diffsec/quokka/internal/memory"
 	"github.com/diffsec/quokka/internal/project"
 )
+
+// MemoryReader is the subset of memory access the prompt generator needs.
+// Both the legacy YAML store (gone after PR-1B) and any future SQL adapter
+// satisfy this interface, so tests can inject a fake without dragging the
+// real store in.
+type MemoryReader interface {
+	ReadByName(name string) (*memory.Memory, error)
+}
 
 const (
 	// DefaultMaxMemoryBytes is the maximum size of a single memory injection in bytes.
@@ -54,23 +63,25 @@ type PromptData struct {
 	// copy-pasteable shell command with all required fields populated.
 	// Weak models follow examples reliably even when prose instructions
 	// fail; strong models still benefit from disambiguation.
-	FindingCreateExample        string
-	FindingCreateYAMLExample    string
-	FindingListExample          string
-	FindingUpdateNoteExample    string
-	RuleAddExample              string
+	FindingCreateExample           string
+	FindingCreateYAMLExample       string
+	FindingListExample             string
+	FindingUpdateNoteExample       string
+	RuleAddExample                 string
 	ExceptionAddFingerprintExample string
-	ExceptionAddPathGlobExample string
+	ExceptionAddPathGlobExample    string
 }
 
 // PromptGenerator generates prompts for agents
 type PromptGenerator struct {
-	project      *project.Project
-	memoryStore  *memory.Store
+	project     *project.Project
+	memoryStore MemoryReader
 }
 
-// NewPromptGenerator creates a new prompt generator
-func NewPromptGenerator(p *project.Project, ms *memory.Store) *PromptGenerator {
+// NewPromptGenerator creates a new prompt generator. The memory reader
+// may be nil if the caller doesn't need memory injection (e.g. a builder
+// that only renders templates).
+func NewPromptGenerator(p *project.Project, ms MemoryReader) *PromptGenerator {
 	return &PromptGenerator{
 		project:     p,
 		memoryStore: ms,
@@ -117,6 +128,47 @@ func (g *PromptGenerator) GenerateWithContext(config *AgentConfig, context strin
 	}
 
 	return prompt, nil
+}
+
+// ToolSpecResolver returns the llm.ToolSpec for each name the workflow
+// has whitelisted for this agent. Implementations live in the agentloop
+// tools registry; injecting the resolver here keeps the prompt package
+// free of a hard dep on the tools registry.
+type ToolSpecResolver interface {
+	Allowed(names []string) []llm.ToolSpec
+}
+
+// GenerateWithToolSpecs renders the agent's system prompt with a workflow
+// prompt-hook fragment and a changed-files appendix, and returns the
+// llm.ToolSpec list the agent is allowed to use.
+//
+//   - system: the assembled system prompt (security preamble + agent
+//     template + workflow hook + changed files appendix)
+//   - user: an empty string today; reserved for callers that want to
+//     drive a kickoff user message
+//   - tools: the llm.ToolSpec list, filtered by config.ToolsAllowed
+func (g *PromptGenerator) GenerateWithToolSpecs(config *AgentConfig, workflowHook string, changedFiles []string, resolver ToolSpecResolver) (system, user string, tools []llm.ToolSpec, err error) {
+	system, err = g.Generate(config)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if strings.TrimSpace(workflowHook) != "" {
+		system += "\n\n## Workflow Hook\n" + workflowHook
+	}
+	if len(changedFiles) > 0 {
+		var b strings.Builder
+		b.WriteString("\n\n## Changed Files (this run)\n")
+		for _, f := range changedFiles {
+			b.WriteString("- ")
+			b.WriteString(f)
+			b.WriteString("\n")
+		}
+		system += b.String()
+	}
+	if resolver != nil {
+		tools = resolver.Allowed(config.ToolsAllowed)
+	}
+	return system, "", tools, nil
 }
 
 // buildPromptData builds the data structure for template rendering

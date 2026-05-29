@@ -1,0 +1,125 @@
+package templates
+
+import "strconv"
+
+templ FindingsList(v FindingsListView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Findings &mdash; { v.Repo.FullName }</h1>
+			<nav class="subnav">
+				<a href={ templ.URL("/repos/" + v.Repo.ID) }>Overview</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/runs") }>Runs</a>
+				<a class="active" href={ templ.URL("/repos/" + v.Repo.ID + "/findings") }>Findings</a>
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/settings") }>Settings</a>
+			</nav>
+		</header>
+
+		<form class="filters" method="get"
+			hx-get={ "/repos/" + v.Repo.ID + "/findings" }
+			hx-push-url="true"
+			hx-target="#findings-table-slot"
+			hx-swap="innerHTML">
+			<label>
+				Severity
+				<select name="severity">
+					<option value="">all</option>
+					for _, s := range severityOrder {
+						if v.Filter.Severity == s {
+							<option value={ s } selected>{ s }</option>
+						} else {
+							<option value={ s }>{ s }</option>
+						}
+					}
+				</select>
+			</label>
+			<label>
+				Status
+				<select name="status">
+					<option value="">all</option>
+					for _, s := range []string{"open","fixed","false_positive","suppressed","snoozed"} {
+						if v.Filter.Status == s {
+							<option value={ s } selected>{ s }</option>
+						} else {
+							<option value={ s }>{ s }</option>
+						}
+					}
+				</select>
+			</label>
+			<label>Path <input type="text" name="path" value={ v.Filter.Path }/></label>
+			<label>CWE <input type="text" name="cwe" value={ v.Filter.CWE }/></label>
+			<label>Agent <input type="text" name="agent" value={ v.Filter.Agent }/></label>
+			<label>From <input type="date" name="from" value={ v.Filter.DateFrom }/></label>
+			<label>To <input type="date" name="to" value={ v.Filter.DateTo }/></label>
+			<label class="checkbox">
+				<input type="checkbox" name="reopened" value="1"
+					if v.Filter.ReopenedOnly { checked }
+				/>
+				Re-opened only
+			</label>
+			<button type="submit">Apply</button>
+		</form>
+
+		<div id="findings-table-slot" x-data="bulkSelect()">
+			<div class="bulk-bar" x-show="count() > 0" x-cloak>
+				<span x-text="count() + ' selected'"></span>
+				<form method="post" hx-post={ "/repos/" + v.Repo.ID + "/findings/bulk" } hx-swap="none">
+					<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+					<template x-for="id in ids()">
+						<input type="hidden" name="ids[]" x-bind:value="id"/>
+					</template>
+					<select name="action">
+						<option value="dismiss">Dismiss</option>
+						<option value="snooze">Snooze</option>
+						<option value="reopen">Re-open</option>
+					</select>
+					<input type="text" name="reason" placeholder="reason"/>
+					<button type="submit" class="btn btn-primary">Apply</button>
+					<button type="button" class="btn" x-on:click="clear()">Cancel</button>
+				</form>
+			</div>
+
+			if len(v.Findings) == 0 {
+				<p class="empty">No findings match the current filter.</p>
+			} else {
+				<table class="findings-table">
+					<thead>
+						<tr>
+							<th></th>
+							<th>Severity</th>
+							<th>Title</th>
+							<th>File</th>
+							<th>CWE</th>
+							<th>Status</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, f := range v.Findings {
+							<tr>
+								<td>
+									<input type="checkbox"
+										x-bind:checked={ "isSelected('" + f.ID + "')" }
+										x-on:change={ "toggle('" + f.ID + "')" }/>
+								</td>
+								<td><span class={ "sev sev-" + f.Severity }>{ f.Severity }</span></td>
+								<td>
+									<a href={ templ.URL("/repos/" + v.Repo.ID + "/findings/" + f.ID) }>{ f.Title }</a>
+									if f.ReopenedCount > 0 {
+										<span class="badge-reopened">RE-OPENED { strconv.Itoa(f.ReopenedCount) }x</span>
+									}
+								</td>
+								<td class="path">
+									{ f.File }
+									if f.LineStart > 0 {
+										:{ strconv.Itoa(f.LineStart) }
+									}
+								</td>
+								<td>{ f.CWE }</td>
+								<td>{ f.Status }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</div>
+	}
+}
