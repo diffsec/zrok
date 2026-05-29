@@ -1,11 +1,14 @@
 package jobs_test
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,12 +16,19 @@ import (
 	"time"
 
 	"github.com/diffsec/quokka/db/migrations"
+	"github.com/diffsec/quokka/internal/agent"
 	"github.com/diffsec/quokka/internal/agentruntime/container"
+	"github.com/diffsec/quokka/internal/app"
 	"github.com/diffsec/quokka/internal/github"
+	"github.com/diffsec/quokka/internal/llm"
+	"github.com/diffsec/quokka/internal/llm/fake"
+	"github.com/diffsec/quokka/internal/project"
 	"github.com/diffsec/quokka/internal/store"
 	_ "github.com/diffsec/quokka/internal/store/sql/sqlite"
+	"github.com/diffsec/quokka/internal/storerpc"
 	"github.com/diffsec/quokka/internal/transcript"
 	"github.com/diffsec/quokka/internal/worker"
+	"github.com/diffsec/quokka/internal/worker/jobs"
 	"github.com/diffsec/quokka/internal/worker/queue"
 )
 
@@ -419,6 +429,378 @@ func TestRunPRRedeliveryIsNoOpWhenInFlight(t *testing.T) {
 	}
 	if ins2 {
 		t.Fatalf("expected second enqueue to be a no-op (inserted=false), got %v", ins2)
+	}
+}
+
+// sidecarRuntime is a test Runtime that drives an in-process sidecar
+// against the worker's real RPC socket. When Create is called it
+// captures the JobSpec, when Start is called it spawns a goroutine that
+// dials the socket and calls app.RunSidecar with a fake LLM provider.
+//
+// This is the new "real end-to-end" runner: webhook → worker → real
+// RPC server → real workflow.Executor (in-process sidecar) → real
+// tool registry → real DB rows.
+type sidecarRuntime struct {
+	mu      sync.Mutex
+	nextID  int
+	spec    *container.ContainerSpec
+	specCh  chan struct{}
+	exit    chan int
+	logsR   *io.PipeReader
+	logsW   *io.PipeWriter
+	killed  bool
+	removed bool
+
+	t        *testing.T
+	provider llm.Provider
+}
+
+func newSidecarRuntime(t *testing.T, p llm.Provider) *sidecarRuntime {
+	r, w := io.Pipe()
+	return &sidecarRuntime{
+		specCh:   make(chan struct{}),
+		exit:     make(chan int, 1),
+		logsR:    r,
+		logsW:    w,
+		t:        t,
+		provider: p,
+	}
+}
+
+func (s *sidecarRuntime) Create(ctx context.Context, spec container.ContainerSpec) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextID++
+	id := "sidecar-1"
+	s.spec = &spec
+	close(s.specCh)
+	return id, nil
+}
+
+func (s *sidecarRuntime) Start(ctx context.Context, id string) error {
+	// Spawn the sidecar in-process: decode the JobSpec from the
+	// container spec, dial the RPC socket the worker set up, and run
+	// the executor. NDJSON output is piped to the StreamLogs channel
+	// so the worker's drainLogs ingests it exactly as it would from a
+	// real container.
+	s.mu.Lock()
+	jsBytes := s.spec.JobSpecJSON
+	var sm container.SocketMount
+	if len(s.spec.SocketBindMounts) > 0 {
+		sm = s.spec.SocketBindMounts[0]
+	}
+	s.mu.Unlock()
+
+	var spec jobs.JobSpec
+	if err := json.Unmarshal(jsBytes, &spec); err != nil {
+		return err
+	}
+	// The sidecar inside the real container would dial
+	// /var/run/quokka.sock; outside, dial the host socket directly.
+	hostSocket := sm.HostPath
+	if hostSocket == "" {
+		hostSocket = spec.RPCSocket
+	}
+
+	client, err := storerpc.Dial(hostSocket, spec.RPCToken)
+	if err != nil {
+		return err
+	}
+
+	factory := app.ProviderFactory(func(*agent.ModelConfig) (llm.Provider, error) {
+		return s.provider, nil
+	})
+
+	go func() {
+		defer client.Close()
+		defer s.logsW.Close()
+		err := app.RunSidecar(ctx, &spec, client, factory, s.logsW)
+		code := 0
+		if err != nil {
+			s.t.Logf("sidecarRuntime: RunSidecar err=%v", err)
+			code = 1
+		}
+		select {
+		case s.exit <- code:
+		default:
+		}
+	}()
+	return nil
+}
+
+func (s *sidecarRuntime) StreamLogs(ctx context.Context, id string) (<-chan container.LogLine, error) {
+	out := make(chan container.LogLine, 16)
+	go func() {
+		defer close(out)
+		br := bufio.NewReader(s.logsR)
+		for {
+			line, err := br.ReadString('\n')
+			if line != "" {
+				select {
+				case out <- container.LogLine{Stream: "stdout", Text: strings.TrimRight(line, "\n")}:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
+func (s *sidecarRuntime) Wait(ctx context.Context, id string) (int, error) {
+	select {
+	case c := <-s.exit:
+		return c, nil
+	case <-ctx.Done():
+		return -1, ctx.Err()
+	}
+}
+
+func (s *sidecarRuntime) Kill(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.killed = true
+	select {
+	case s.exit <- 137:
+	default:
+	}
+	return nil
+}
+
+func (s *sidecarRuntime) Remove(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.removed = true
+	return nil
+}
+
+// TestRunPRRealEndToEndWithInProcessSidecar exercises the full
+// pipeline with no canned data: the worker stands up a real RPC
+// server, a sidecarRuntime drives app.RunSidecar in-process against a
+// fake LLM scripted to call finding_create, and we assert that the
+// finding row landed via the RPC path and the feedback writers fired.
+func TestRunPRRealEndToEndWithInProcessSidecar(t *testing.T) {
+	stores, dir := openTestStores(t)
+	ctx := context.Background()
+
+	org := &store.Org{Name: "acme"}
+	if err := stores.Orgs.Create(ctx, org); err != nil {
+		t.Fatalf("Orgs.Create: %v", err)
+	}
+	install := &store.Installation{
+		OrgID:                org.ID,
+		GitHubInstallationID: 77,
+		AccountLogin:         "acme",
+		AccountType:          "Organization",
+		TargetType:           "Organization",
+	}
+	if err := stores.Installations.Create(ctx, install); err != nil {
+		t.Fatalf("Installations.Create: %v", err)
+	}
+	// classify the repo so the test-agent's project-types applicability
+	// matches.
+	cls := project.ProjectClassification{Types: []project.ProjectType{project.TypeWebApp}}
+	clsJSON, _ := json.Marshal(cls)
+	repo := &store.Repository{
+		OrgID:              org.ID,
+		InstallationID:     install.ID,
+		GitHubRepoID:       77,
+		FullName:           "acme/widget2",
+		DefaultBranch:      "main",
+		ClassificationJSON: string(clsJSON),
+	}
+	if err := stores.Repos.Create(ctx, repo); err != nil {
+		t.Fatalf("Repos.Create: %v", err)
+	}
+
+	// Seed a workflow row that names a single agent. The worker will
+	// resolve this and embed it into the JobSpec.
+	wfYAML := `
+name: test
+version: 1
+phases:
+  - name: reporting
+    mode: sequential
+    agents:
+      - test-agent
+`
+	wf := &store.Workflow{OrgID: org.ID, RepoID: repo.ID, Name: "test"}
+	if err := stores.Workflows.Create(ctx, wf); err != nil {
+		t.Fatalf("Workflows.Create: %v", err)
+	}
+	ver := &store.WorkflowVersion{WorkflowID: wf.ID, YAML: wfYAML, CreatedBy: ""}
+	if err := stores.Workflows.NewVersion(ctx, ver); err != nil {
+		t.Fatalf("Workflows.NewVersion: %v", err)
+	}
+	if err := stores.Workflows.SetActiveVersion(ctx, wf.ID, ver.ID); err != nil {
+		t.Fatalf("SetActiveVersion: %v", err)
+	}
+
+	// Set the provider env vars the sidecar's NewEnvProviderFactory
+	// would consume in prod. The sidecarRuntime bypasses the env-driven
+	// factory in favour of returning the fake provider directly, but
+	// the worker still injects QUOKKA_PROVIDER_* — we leave the env
+	// clean so we exercise the fallback resolution path.
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+
+	// Fake LLM: one turn that calls finding_create, second turn that
+	// produces a text reply and ends. Drives one agent.
+	findingArgs := `{"title":"hardcoded creds","severity":"high","file":"main.go","line_start":11,"description":"oops"}`
+	turn1 := []llm.Event{
+		{Kind: llm.EventToolCallStart, ToolUseID: "tu1", ToolName: "finding_create"},
+		{Kind: llm.EventToolCallDelta, ToolUseID: "tu1", InputDelta: findingArgs},
+		{Kind: llm.EventToolCallEnd, ToolUseID: "tu1"},
+		{Kind: llm.EventStopReason, StopReason: llm.StopToolUse},
+	}
+	turn2 := []llm.Event{
+		{Kind: llm.EventTextDelta, Text: "done"},
+		{Kind: llm.EventStopReason, StopReason: llm.StopEndTurn},
+	}
+	provider := fake.New("fake-anthropic", turn1, turn2)
+
+	// Patch the test-agent into the registry path the worker reads.
+	// We do this by writing a temporary YAML into a path the in-test
+	// agent registry can see. Easier: just rely on agent.GetBuiltinAgent
+	// — the worker's resolveAgents calls GetBuiltinAgents(), and our
+	// agent name "test-agent" won't be in the registry. That's fine
+	// because the sidecar's buildAgentLookup falls through to the
+	// spec.Agents map first. But the worker only puts built-in agents
+	// in the spec. To get "test-agent" into the spec, we register it
+	// in the test by writing a workflow that names a built-in agent.
+	// Use review-agent since it's in the registry.
+	_ = wfYAML
+	if a := agent.GetBuiltinAgent("review-agent"); a == nil {
+		t.Fatalf("expected review-agent to be in built-in registry")
+	}
+	// Reseed the workflow YAML to use review-agent.
+	realYAML := `
+name: test
+version: 1
+phases:
+  - name: reporting
+    mode: sequential
+    agents:
+      - review-agent
+`
+	// Update the workflow version's yaml directly: insert a new version.
+	ver2 := &store.WorkflowVersion{WorkflowID: wf.ID, YAML: realYAML, CreatedBy: ""}
+	if err := stores.Workflows.NewVersion(ctx, ver2); err != nil {
+		t.Fatalf("Workflows.NewVersion v2: %v", err)
+	}
+	if err := stores.Workflows.SetActiveVersion(ctx, wf.ID, ver2.ID); err != nil {
+		t.Fatalf("SetActiveVersion v2: %v", err)
+	}
+
+	cl := &fakeCloner{}
+	fb := &fakeFeedback{}
+	rt := newSidecarRuntime(t, provider)
+	bcast := transcript.NewBroadcaster()
+
+	q := queue.NewSQLQueue(stores.Jobs)
+
+	w, err := worker.New(worker.Config{
+		Stores:      stores,
+		Queue:       q,
+		Runtime:     rt,
+		GitHub:      seededAuth(t, 77),
+		Cloner:      cl,
+		Feedback:    fb,
+		Broadcaster: bcast,
+		DataRoot:    dir,
+		BaseURL:     "http://localhost:8080",
+		RunnerImage: "quokka-runner:test",
+		WorkerID:    "test-worker",
+		Log:         slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("worker.New: %v", err)
+	}
+
+	payload, _ := json.Marshal(github.RunPRPayload{
+		InstallationID: 77,
+		RepoFullName:   "acme/widget2",
+		GitHubRepoID:   77,
+		PRNumber:       8,
+		BaseSHA:        "b",
+		HeadSHA:        "h2",
+		Trigger:        "pr_opened",
+	})
+	if _, _, err := q.Enqueue(ctx, &queue.Job{
+		Type:           "RunPR",
+		PayloadJSON:    string(payload),
+		IdempotencyKey: "run:77:8:h2",
+	}); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- w.DispatchOne(ctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("DispatchOne: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatalf("DispatchOne timed out")
+	}
+
+	runs, err := stores.Runs.List(ctx, repo.ID, 10, 0)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("runs list: %v len=%d", err, len(runs))
+	}
+	run := runs[0]
+	if run.Status != "completed" {
+		t.Fatalf("expected status=completed, got %q (err_category=%q err=%q)",
+			run.Status, run.ErrorCategory, run.ErrorMessage)
+	}
+
+	// The finding lands in the DB via the RPC path. Assert by run.
+	findings, err := stores.Findings.ListByRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("Findings.ListByRun: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding via RPC, got %d", len(findings))
+	}
+	f := findings[0]
+	if f.Title != "hardcoded creds" || f.Severity != "high" || f.File != "main.go" {
+		t.Errorf("finding shape mismatch: %+v", f)
+	}
+	if f.CreatedBy != "review-agent" {
+		t.Errorf("expected created_by=review-agent, got %q", f.CreatedBy)
+	}
+
+	// Feedback writers ran in order: start_check_run, then finish/review/summary.
+	if len(fb.calls) == 0 || fb.calls[0] != "start_check_run" {
+		t.Fatalf("expected start_check_run first, got %v", fb.calls)
+	}
+	saw := map[string]bool{}
+	for _, c := range fb.calls {
+		saw[c] = true
+	}
+	if !saw["finish_check_run"] || !saw["post_review"] || !saw["upsert_summary_comment"] {
+		t.Errorf("expected all writers; got %v", fb.calls)
+	}
+
+	// Transcript row should exist; verify the file has the executor's
+	// NDJSON sequence (agent_start, tool_call, tool_result at minimum).
+	trs, err := stores.Transcripts.List(ctx, run.ID)
+	if err != nil || len(trs) == 0 {
+		t.Fatalf("expected a transcript row; got %v err=%v", trs, err)
+	}
+	path := strings.TrimPrefix(trs[0].StorageURI, "file://")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read transcript: %v", err)
+	}
+	body := string(b)
+	for _, want := range []string{"agent_start", "tool_call", "tool_result"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("transcript missing %q; body=%s", want, body)
+		}
 	}
 }
 

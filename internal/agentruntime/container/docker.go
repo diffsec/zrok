@@ -102,6 +102,13 @@ func (d *DockerRuntime) Create(ctx context.Context, spec ContainerSpec) (string,
 			Target: "/state",
 		})
 	}
+	for _, sm := range spec.SocketBindMounts {
+		mounts = append(mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: filepath.Clean(sm.HostPath),
+			Target: sm.ContainerPath,
+		})
+	}
 
 	res := spec.Resources
 	if res.MemoryBytes == 0 && res.NanoCPUs == 0 && res.PidsLimit == 0 {

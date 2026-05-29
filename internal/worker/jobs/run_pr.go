@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/diffsec/quokka/internal/agentruntime/container"
 	"github.com/diffsec/quokka/internal/github"
 	"github.com/diffsec/quokka/internal/store"
+	"github.com/diffsec/quokka/internal/storerpc"
 	"github.com/diffsec/quokka/internal/transcript"
 )
 
@@ -134,7 +137,48 @@ func RunPR(ctx context.Context, deps *Deps, payload []byte) error {
 
 	// Spawn the runner container (or fake) and tail its log lines.
 	if deps.Runtime != nil && deps.RunnerImage != "" {
-		id, err := deps.Runtime.Create(containerCtx, jobSpecForRun(deps, repo.ID, run.ID, repoDir))
+		// Per-run RPC socket. Allocate before container Create so the
+		// bind-mount source path exists.
+		rpcToken, err := generateRPCToken()
+		if err != nil {
+			return failRun(ctx, deps, run.ID, "rpc_token_failed", err)
+		}
+		// Sockets must fit sockaddr_un.sun_path (104 bytes on Darwin), so
+		// keep the path shallow. We use os.MkdirTemp under the system
+		// temp dir; transcripts still land under <data-root>/runs/<run>.
+		sockDir, err := os.MkdirTemp("", "qkrun-")
+		if err != nil {
+			return failRun(ctx, deps, run.ID, "rpc_dir_failed", err)
+		}
+		socketPath := filepath.Join(sockDir, "s")
+		listener, err := net.Listen("unix", socketPath)
+		if err != nil {
+			_ = os.RemoveAll(sockDir)
+			return failRun(ctx, deps, run.ID, "rpc_listen_failed", err)
+		}
+		rpcSrv := storerpc.NewServer(deps.Stores, deps.Log)
+		rpcSrv.Authenticate(rpcToken, run.ID, repo.OrgID, repo.ID)
+		rpcDone := make(chan struct{})
+		go func() {
+			_ = rpcSrv.Serve(listener)
+			close(rpcDone)
+		}()
+		defer func() {
+			_ = rpcSrv.Close()
+			_ = os.RemoveAll(sockDir)
+		}()
+
+		// Build the full JobSpec + container spec.
+		jobSpec, provider, err := buildJobSpec(ctx, deps, repo, run, p, socketPath, rpcToken)
+		if err != nil {
+			return failRun(ctx, deps, run.ID, "build_spec_failed", err)
+		}
+		cSpec, err := containerSpecFromJobSpec(deps, jobSpec, provider, repoDir, socketPath)
+		if err != nil {
+			return failRun(ctx, deps, run.ID, "build_container_spec_failed", err)
+		}
+
+		id, err := deps.Runtime.Create(containerCtx, cSpec)
 		if err != nil {
 			return failRun(ctx, deps, run.ID, "runtime_create_failed", err)
 		}

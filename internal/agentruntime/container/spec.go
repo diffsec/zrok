@@ -21,6 +21,10 @@ type ContainerSpec struct {
 	StatePath string
 	// Env is the environment variables to inject (PROVIDER_API_KEY, etc).
 	Env map[string]string
+	// SocketBindMounts is the list of host-side socket files to bind-mount
+	// read-write into the container. The runner uses this to expose the
+	// per-run RPC socket at /var/run/quokka.sock.
+	SocketBindMounts []SocketMount
 	// Resources caps memory/cpu/pids.
 	Resources Resources
 	// NetworkID is the Docker network to attach. Empty = bridge.
@@ -47,6 +51,13 @@ func DefaultResources() Resources {
 		NanoCPUs:    2_000_000_000,
 		PidsLimit:   512,
 	}
+}
+
+// SocketMount is one host→container Unix socket bind. The host path
+// must already exist when Create is called.
+type SocketMount struct {
+	HostPath      string
+	ContainerPath string
 }
 
 // LogLine is one demuxed line from container stdout/stderr.

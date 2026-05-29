@@ -192,13 +192,40 @@ adapter, not a mock.
 The evaluation framework still runs against the legacy CLI on
 `legacy-cli`; the SaaS surface gets its own eval harness in a later PR.
 
-## Known gaps (rewrite in progress)
+## Worker ↔ sidecar boundary
 
-- **In-container agent execution is stubbed.** PR-4 ships the full
-  worker → container → log-streaming → GitHub-feedback pipeline, but
-  `quokka agent run --job-file ...` (the sidecar that should host the
-  `workflow.Executor` inside the container) only emits a few canned
-  NDJSON `TranscriptEvent` lines and exits 0. A PR-4.5 wires the
-  real executor + tool registry so a webhook produces an actual LLM
-  run rather than a placeholder transcript. Until then, "completed"
-  runs are decorative.
+PR-4.5 wired the real in-container executor. The split:
+
+- **Host worker** (`internal/worker/jobs/run_pr.go`): claims a job,
+  clones the repo at the PR head, generates a per-run RPC token and
+  socket file under `os.MkdirTemp` (kept short for sockaddr_un), spawns
+  a `storerpc.Server` bound to (token, run_id, org_id, repo_id), builds
+  a `jobs.JobSpec` (workflow YAML, agent set, classification, paths,
+  RPC token), assembles a `container.ContainerSpec` with the socket
+  bind-mounted at `/var/run/quokka.sock` and provider env vars
+  (`QUOKKA_PROVIDER_<LABEL>_KEY`/`_BASE_URL`/`_PROTOCOL`) injected,
+  spawns the runner container, drains NDJSON stdout through `DBSink` +
+  `Broadcaster`, and runs the GitHub feedback writers.
+- **In-container sidecar** (`internal/app/agent_run.go`): reads
+  `/job/spec.json`, dials the RPC socket with the token, builds a
+  synthetic `*store.Stores` whose `Findings`, `Memories`, and
+  `Exceptions` are RPC-backed clients, constructs an `llm.Provider`
+  from the injected env vars, parses the workflow YAML, drives
+  `workflow.Executor.Run` against `/workspace` (the cloned repo) and
+  `/state` (per-repo embedding volume), and emits one NDJSON
+  `TranscriptEvent` per line to stdout.
+
+The sidecar has zero filesystem access outside `/workspace` + `/state`,
+zero DB access except through the RPC, and only outbound HTTPS for the
+LLM (via the egress allowlist, doc-only in PR-4). The RPC server
+enforces a method allowlist (`storerpc.AllowedMethods`) and rejects
+calls whose repo_id arg doesn't match the run's authorized repo —
+defense in depth on top of the per-run socket.
+
+`RunSidecar(ctx, *jobs.JobSpec, *storerpc.Client, ProviderFactory,
+io.Writer)` is the exported sidecar entry point. The new
+`run_pr_test.go` variant `TestRunPRRealEndToEndWithInProcessSidecar`
+exercises the full pipeline by replacing the `container.Runtime` with
+an in-process Runtime that calls `RunSidecar` directly against the
+worker's real socket using a fake LLM scripted to emit a
+`finding_create` tool call.

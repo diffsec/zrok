@@ -37,6 +37,11 @@ type Executor struct {
 	Project         *project.Project
 	Classification  project.ProjectClassification
 
+	// Sandbox is the path jail every agent's tools see via env.Sandbox.
+	// Optional — when nil, navigate tools fall back to no jail (legacy
+	// behavior). The sidecar always sets this to /workspace.
+	Sandbox *tools.Sandbox
+
 	// SpawnDefaults are propagated into child specs (max iters, max
 	// tokens, etc.). Zero values use the loop's built-in defaults.
 	SpawnDefaults tools.SpawnDefaults
@@ -195,6 +200,7 @@ func (e *Executor) runOneAgent(
 	env := &tools.Env{
 		Project:         e.Project,
 		Stores:          e.Stores,
+		Sandbox:         e.Sandbox,
 		AgentName:       cfg.Name,
 		RepoID:          rc.RepoID,
 		RunID:           rc.RunID,
