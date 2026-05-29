@@ -23,10 +23,23 @@ templ RunPage(v RunView) {
 			</div>
 		</header>
 
-		<section class="run-summary">
-			<h2>Phases</h2>
-			<p class="muted">Live timeline view ships in PR-5. This run page renders the completed-state summary only.</p>
-		</section>
+		<div class="run-layout">
+			<section class="run-timeline" id="run-timeline"
+				hx-ext="sse"
+				sse-connect={ "/repos/" + v.Repo.ID + "/runs/" + v.Run.ID + "/events" }
+				sse-swap="phase_start,phase_end,agent_start,agent_end,run_completed,run_failed,run_cancelled"
+				hx-swap="none"
+			>
+				@RunTimelineCard(v)
+			</section>
+
+			<aside id="transcript-slot">
+				<div class="transcript-drawer">
+					<h3>Transcript</h3>
+					<p class="muted">Click an agent card to load its transcript.</p>
+				</div>
+			</aside>
+		</div>
 
 		<section class="run-findings">
 			<h2>Findings <span class="count">({ strconv.Itoa(len(v.Findings)) })</span></h2>
@@ -41,7 +54,9 @@ templ RunPage(v RunView) {
 						for _, f := range v.Findings {
 							<tr>
 								<td><span class={ "sev sev-" + f.Severity }>{ f.Severity }</span></td>
-								<td>{ f.Title }</td>
+								<td>
+									<a href={ templ.URL("/repos/" + v.Repo.ID + "/findings/" + f.ID) }>{ f.Title }</a>
+								</td>
 								<td class="path">
 									{ f.File }
 									if f.LineStart > 0 {

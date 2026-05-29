@@ -1,0 +1,26 @@
+package templates
+
+templ AgentsList(v AgentsListView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Agents</h1>
+			<a class="btn btn-primary" href="/agents/new">Add agent</a>
+		</header>
+		if len(v.Agents) == 0 {
+			<p class="empty">No agents configured. The first run will seed the registry; you can edit each entry here afterwards.</p>
+		} else {
+			<table>
+				<thead><tr><th>Name</th><th>Phase</th><th>Description</th></tr></thead>
+				<tbody>
+					for _, a := range v.Agents {
+						<tr>
+							<td><a href={ templ.URL("/agents/" + a.Name) }>{ a.Name }</a></td>
+							<td>{ a.Phase }</td>
+							<td>{ a.Description }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	}
+}

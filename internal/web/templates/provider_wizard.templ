@@ -1,0 +1,33 @@
+package templates
+
+templ ProviderWizard(v ProviderWizardView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Add provider</h1>
+		</header>
+		if v.Error != "" {
+			<p class="error-msg">{ v.Error }</p>
+		}
+		<form method="post" action="/providers" class="form-grid" x-data={ "{preset:'anthropic', protocol:'anthropic', baseURL:'https://api.anthropic.com', presets: " + presetsJSON(v.Presets) + "}" }>
+			<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+			<label>Preset</label>
+			<select name="preset" x-model="preset" x-on:change="protocol = presets[preset].protocol; baseURL = presets[preset].baseURL">
+				for _, p := range v.Presets {
+					<option value={ p.Key }>{ p.Label }</option>
+				}
+			</select>
+			<label>Label</label>
+			<input type="text" name="name" required placeholder="e.g. Anthropic"/>
+			<label>Protocol</label>
+			<input type="text" name="protocol" x-model="protocol" required/>
+			<label>Base URL</label>
+			<input type="text" name="base_url" x-model="baseURL" required/>
+			<label>API key</label>
+			<input type="password" name="api_key" required/>
+			<div class="actions" style="grid-column:1/-1">
+				<button type="submit" class="btn btn-primary">Create</button>
+				<a href="/providers" class="btn">Cancel</a>
+			</div>
+		</form>
+	}
+}

@@ -101,6 +101,11 @@ func (r *Registry) Get(name string) Tool {
 	return r.tools[name]
 }
 
+// AllToolNames is an alias for Names. The agent editor's "tools allowed"
+// multiselect calls this to populate its options without taking a
+// dependency on the tool registry's internal layout.
+func (r *Registry) AllToolNames() []string { return r.Names() }
+
 // Names returns the registered tool names sorted alphabetically would
 // require an allocation; callers don't need ordering today.
 func (r *Registry) Names() []string {

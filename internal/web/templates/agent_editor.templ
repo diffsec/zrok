@@ -1,0 +1,214 @@
+package templates
+
+import "strings"
+
+templ AgentEditor(v AgentEditorView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>{ v.Name }
+				if v.ReadOnly {
+					<span class="muted">(read-only, rev { itoa(v.CurrentRevision) })</span>
+				}
+			</h1>
+			<nav class="subnav">
+				<a href="/agents">← Agents</a>
+				if !v.IsNew {
+					<button class="btn"
+						hx-get={ "/agents/" + v.Name + "/commit" } hx-target="#modal-slot">Commit to repo</button>
+					<button class="btn"
+						hx-get={ "/agents/" + v.Name + "/import" } hx-target="#modal-slot">Import from repo</button>
+				}
+			</nav>
+			if len(v.Revisions) > 1 {
+				<form method="get" action={ templ.URL("/agents/" + v.Name) } style="display:inline">
+					<label>Revision
+						<select name="version" onchange="this.form.submit()">
+							for _, rev := range v.Revisions {
+								if rev.Revision == v.CurrentRevision {
+									<option value={ itoa(rev.Revision) } selected>{ itoa(rev.Revision) }</option>
+								} else {
+									<option value={ itoa(rev.Revision) }>{ itoa(rev.Revision) }</option>
+								}
+							}
+						</select>
+					</label>
+				</form>
+			}
+		</header>
+		if v.Error != "" {
+			<p class="error-msg">{ v.Error }</p>
+		}
+		<form method="post" action={ templ.URL("/agents/" + v.Name) } class="form-grid">
+			<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+			<label>Name</label>
+			if v.IsNew {
+				<input type="text" name="name" required value={ v.Name }/>
+			} else {
+				<input type="text" name="name" value={ v.Name } readonly/>
+			}
+			<label>Description</label>
+			<input type="text" name="description" value={ v.Description }
+				if v.ReadOnly { readonly }
+			/>
+			<label>Phase</label>
+			<select name="phase"
+				if v.ReadOnly { disabled }
+			>
+				for _, p := range []string{"recon","analysis","validation","reporting"} {
+					if v.Phase == p {
+						<option value={ p } selected>{ p }</option>
+					} else {
+						<option value={ p }>{ p }</option>
+					}
+				}
+			</select>
+
+			<label>Prompt template</label>
+			<textarea name="prompt_template" rows="10"
+				if v.ReadOnly { readonly }
+			>{ v.PromptTemplate }</textarea>
+
+			<label>Always include</label>
+			<input type="checkbox" name="always_include"
+				if v.AlwaysInclude { checked }
+				if v.ReadOnly { disabled }
+			/>
+
+			<label>Project types</label>
+			<select name="project_types" multiple size="5"
+				if v.ReadOnly { disabled }
+			>
+				for _, t := range v.ProjectTypes {
+					<option value={ t } selected>{ t }</option>
+				}
+				for _, t := range knownProjectTypesForUI(v.ProjectTypes) {
+					<option value={ t }>{ t }</option>
+				}
+			</select>
+
+			<label>Project traits</label>
+			<select name="project_traits" multiple size="5"
+				if v.ReadOnly { disabled }
+			>
+				for _, t := range v.ProjectTraits {
+					<option value={ t } selected>{ t }</option>
+				}
+				for _, t := range knownProjectTraitsForUI(v.ProjectTraits) {
+					<option value={ t }>{ t }</option>
+				}
+			</select>
+
+			<label>Owns CWEs (comma-separated)</label>
+			<input type="text" name="owns_cwes" value={ strings.Join(v.OwnsCWEs, ",") }
+				if v.ReadOnly { readonly }
+			/>
+
+			<label>Context memories (comma-separated)</label>
+			<input type="text" name="context_memories" value={ strings.Join(v.ContextMemories, ",") }
+				if v.ReadOnly { readonly }
+			/>
+
+			<label>Tools allowed (comma-separated)</label>
+			<input type="text" name="tools_allowed" value={ strings.Join(v.ToolsAllowed, ",") }
+				if v.ReadOnly { readonly }
+				list="all-tool-names"/>
+			<datalist id="all-tool-names">
+				for _, n := range v.AllToolNames {
+					<option value={ n }></option>
+				}
+			</datalist>
+
+			<h3 style="grid-column:1/-1">Model override</h3>
+			<label>Provider</label>
+			<select name="model_provider_id"
+				if v.ReadOnly { disabled }
+			>
+				<option value="">(org default)</option>
+				for _, p := range v.Providers {
+					if v.ModelProviderID == p.ID {
+						<option value={ p.ID } selected>{ p.Name }</option>
+					} else {
+						<option value={ p.ID }>{ p.Name }</option>
+					}
+				}
+			</select>
+			<label>Model</label>
+			<input type="text" name="model_name" value={ v.ModelName }
+				if v.ReadOnly { readonly }
+			/>
+			<label>Temperature</label>
+			<input type="number" name="temperature" min="0" max="1.5" step="0.05" value={ floatStr(v.Temperature) }
+				if v.ReadOnly { readonly }
+			/>
+			<label>Max tokens</label>
+			<input type="number" name="max_tokens" min="0" value={ itoa(v.MaxTokens) }
+				if v.ReadOnly { readonly }
+			/>
+
+			if v.YAMLPreview != "" {
+				<h3 style="grid-column:1/-1">YAML preview</h3>
+				<pre class="finding-snippet" style="grid-column:1/-1">{ v.YAMLPreview }</pre>
+			}
+
+			if !v.ReadOnly {
+				<div class="actions" style="grid-column:1/-1">
+					<button type="submit" class="btn btn-primary">Save as new revision</button>
+				</div>
+			}
+		</form>
+	}
+}
+
+templ AgentCommitModal(v CommitModalView) {
+	<dialog>
+		<form method="post" hx-post={ "/agents/" + v.AgentName + "/commit" } hx-swap="none">
+			<input type="hidden" name="csrf_token" value={ v.CSRFToken }/>
+			<div class="modal-header"><h3>Commit { v.AgentName } to repo</h3></div>
+			<div class="modal-body">
+				<label>Repository
+					<select name="repo_id" required>
+						for _, r := range v.Repos {
+							<option value={ r.ID }>{ r.FullName }</option>
+						}
+					</select>
+				</label>
+				<label>Branch
+					<input type="text" name="branch" value={ "quokka/agent-" + v.AgentName } required/>
+				</label>
+				<label>PR title
+					<input type="text" name="title" value={ "Update agent: " + v.AgentName } required/>
+				</label>
+				<label>PR body
+					<textarea name="body">Updates .quokka/agents/{ v.AgentName }.yaml via the quokka admin UI.</textarea>
+				</label>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn" data-close-modal>Cancel</button>
+				<button type="submit" class="btn btn-primary">Open PR</button>
+			</div>
+		</form>
+	</dialog>
+}
+
+templ AgentImportModal(v CommitModalView) {
+	<dialog>
+		<form method="post" hx-post={ "/agents/" + v.AgentName + "/import" } hx-swap="none">
+			<input type="hidden" name="csrf_token" value={ v.CSRFToken }/>
+			<div class="modal-header"><h3>Import { v.AgentName } from repo</h3></div>
+			<div class="modal-body">
+				<label>Repository
+					<select name="repo_id" required>
+						for _, r := range v.Repos {
+							<option value={ r.ID }>{ r.FullName }</option>
+						}
+					</select>
+				</label>
+				<p class="muted">We read <code>.quokka/agents/{ v.AgentName }.yaml</code> from the default branch.</p>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn" data-close-modal>Cancel</button>
+				<button type="submit" class="btn btn-primary">Import</button>
+			</div>
+		</form>
+	</dialog>
+}

@@ -1,0 +1,46 @@
+package templates
+
+templ ProviderDetail(v ProviderDetailView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>{ v.Provider.Name }</h1>
+			<nav class="subnav">
+				<a href="/providers">← Providers</a>
+				<span class="muted">{ v.Provider.Protocol }</span>
+			</nav>
+		</header>
+		<section class="form-grid">
+			<label>Base URL</label><div>{ v.Provider.BaseURL }</div>
+			<label>API key</label><div>{ v.Provider.APIKey }</div>
+			<label>Preset</label><div>{ v.Provider.Preset }</div>
+		</section>
+		<div class="actions">
+			<form method="post" action={ templ.URL("/providers/" + v.Provider.ID + "/test") }
+				hx-post={ "/providers/" + v.Provider.ID + "/test" }
+				hx-target="#test-result"
+				hx-swap="innerHTML">
+				<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+				<button type="submit" class="btn">Test connection</button>
+			</form>
+			<form method="post" action={ templ.URL("/providers/" + v.Provider.ID + "/models/refresh") }>
+				<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+				<button type="submit" class="btn">Refresh models</button>
+			</form>
+		</div>
+		<pre id="test-result" class="finding-snippet">{ v.TestResp }</pre>
+
+		<h2>Models</h2>
+		if len(v.Models) == 0 {
+			<p class="empty">No models discovered. Click Refresh models above.</p>
+		} else {
+			<table>
+				<thead><tr><th>Model</th><th>Context window</th></tr></thead>
+				<tbody>
+					for _, m := range v.Models {
+						<tr><td>{ m.Model }</td><td>{ itoa(m.ContextWindow) }</td></tr>
+					}
+				</tbody>
+			</table>
+		}
+	}
+}

@@ -82,6 +82,19 @@ func Create(ctx context.Context, fs store.FindingStore, req CreateRequest) (*Cre
 	if f.CreatedBy != "" {
 		existing, err := fs.FindByFingerprintAndCreator(ctx, req.RepoID, f.Fingerprint, f.CreatedBy)
 		if err == nil && existing != nil {
+			// If the existing row was previously auto-resolved or manually
+			// dismissed and the fingerprint is now re-emerging in a new run,
+			// flip status back to open and bump reopened_count. This pairs
+			// with FindingStore.AutoResolveMissing in run_pr.go to make the
+			// "RE-OPENED" badge appear in the UI.
+			if existing.Status == "fixed" || existing.Status == "false_positive" {
+				existing.Status = "open"
+				existing.ReopenedCount++
+				existing.RunID = req.RunID
+				if err := fs.Update(ctx, existing); err != nil {
+					return nil, fmt.Errorf("re-open update: %w", err)
+				}
+			}
 			out := rowToFinding(existing)
 			return &CreateResult{Finding: out, Deduped: true}, nil
 		} else if err != nil && !errors.Is(err, store.ErrNotFound) {

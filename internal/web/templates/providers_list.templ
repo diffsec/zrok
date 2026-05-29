@@ -1,0 +1,33 @@
+package templates
+
+templ ProvidersList(v ProvidersListView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>Providers</h1>
+			<a class="btn btn-primary" href="/providers/new">Add provider</a>
+		</header>
+		if len(v.Providers) == 0 {
+			<p class="empty">No providers configured. Add one to start running agents.</p>
+		} else {
+			<table>
+				<thead><tr><th>Name</th><th>Protocol</th><th>Base URL</th><th>Default?</th></tr></thead>
+				<tbody>
+					for _, p := range v.Providers {
+						<tr>
+							<td><a href={ templ.URL("/providers/" + p.ID) }>{ p.Name }</a></td>
+							<td>{ p.Protocol }</td>
+							<td>{ p.BaseURL }</td>
+							<td>
+								if p.IsDefault {
+									yes
+								} else {
+									no
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	}
+}

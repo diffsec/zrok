@@ -7,11 +7,15 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/diffsec/quokka/internal/agentloop/tools"
+	githubpkg "github.com/diffsec/quokka/internal/github"
 	"github.com/diffsec/quokka/internal/store"
+	"github.com/diffsec/quokka/internal/transcript"
 	"github.com/diffsec/quokka/internal/web"
 	"github.com/diffsec/quokka/internal/web/handlers"
 	"github.com/diffsec/quokka/internal/worker/queue"
@@ -75,6 +79,22 @@ func runServer(ctx context.Context, addr, baseURL string) error {
 		return ins, err
 	}
 
+	// Wire optional dependencies that PR-5 introduced: in-memory transcript
+	// broadcaster (live SSE), agent-tool registry (agent editor's tools
+	// multiselect), and a GitHub App authenticator for the commit-back PR
+	// feature. Each is nil-safe; the handlers degrade gracefully.
+	broadcaster := transcript.NewBroadcaster()
+	toolReg := tools.Default()
+	var appAuth *githubpkg.AppAuth
+	if appIDStr := os.Getenv("QUOKKA_GITHUB_APP_ID"); appIDStr != "" {
+		if id, err := strconv.ParseInt(appIDStr, 10, 64); err == nil {
+			keyPath := os.Getenv("QUOKKA_GITHUB_APP_PRIVATE_KEY_FILE")
+			if keyPath != "" {
+				appAuth = githubpkg.NewAppAuth(id, keyPath)
+			}
+		}
+	}
+
 	srv := web.NewServer(web.Config{
 		Addr:           addr,
 		BaseURL:        baseURL,
@@ -88,6 +108,10 @@ func runServer(ctx context.Context, addr, baseURL string) error {
 		Log:            log,
 		WebhookSecret:  webhookSecret,
 		WebhookEnqueue: enqueueFn,
+		Broadcaster:    broadcaster,
+		ToolRegistry:   toolReg,
+		AppAuth:        appAuth,
+		DataRoot:       globals.DataRoot,
 	})
 
 	// Shutdown on SIGINT/SIGTERM.

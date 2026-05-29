@@ -1,0 +1,83 @@
+package templates
+
+import "strconv"
+
+templ FindingDetail(v FindingDetailView) {
+	@Layout(v.Page) {
+		<header class="page-header">
+			<h1>
+				<span class={ "sev sev-" + v.Finding.Severity }>{ v.Finding.Severity }</span>
+				{ v.Finding.Title }
+				if v.Finding.ReopenedCount > 0 {
+					<span class="badge-reopened">RE-OPENED { strconv.Itoa(v.Finding.ReopenedCount) }x</span>
+				}
+			</h1>
+			<nav class="subnav">
+				<a href={ templ.URL("/repos/" + v.Repo.ID + "/findings") }>← Findings</a>
+				<span class="muted">{ v.Finding.File }
+					if v.Finding.LineStart > 0 {
+						:{ strconv.Itoa(v.Finding.LineStart) }
+					}
+				</span>
+				<span class="muted">CWE: { v.Finding.CWE }</span>
+				<span class={ "status status-" + v.Finding.Status }>{ v.Finding.Status }</span>
+			</nav>
+			<div class="actions-bar">
+				<button class="btn"
+					hx-get={ "/repos/" + v.Repo.ID + "/findings/" + v.Finding.ID + "/dismiss" }
+					hx-target="#modal-slot">Dismiss</button>
+				<button class="btn"
+					hx-get={ "/repos/" + v.Repo.ID + "/findings/" + v.Finding.ID + "/suppress" }
+					hx-target="#modal-slot">Suppress rule</button>
+				<button class="btn"
+					hx-get={ "/repos/" + v.Repo.ID + "/findings/" + v.Finding.ID + "/snooze" }
+					hx-target="#modal-slot">Snooze</button>
+				<button class="btn"
+					hx-get={ "/repos/" + v.Repo.ID + "/findings/" + v.Finding.ID + "/note" }
+					hx-target="#modal-slot">Add note</button>
+				if v.Finding.Status != "open" {
+					<form method="post" hx-post={ "/repos/" + v.Repo.ID + "/findings/" + v.Finding.ID + "/reopen" } hx-swap="none">
+						<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+						<button class="btn btn-primary" type="submit">Re-open</button>
+					</form>
+				}
+			</div>
+		</header>
+
+		<div class="finding-detail">
+			<div class="panel">
+				<h2>Description</h2>
+				<p>{ v.Finding.Description }</p>
+				if v.Finding.Impact != "" {
+					<h2>Impact</h2>
+					<p>{ v.Finding.Impact }</p>
+				}
+				if v.Finding.Remediation != "" {
+					<h2>Remediation</h2>
+					<p>{ v.Finding.Remediation }</p>
+				}
+				if v.Finding.Snippet != "" {
+					<h2>Code</h2>
+					<pre class="finding-snippet">{ v.Finding.Snippet }</pre>
+				}
+			</div>
+			<aside class="panel">
+				<h3>Activity</h3>
+				if len(v.Actions) == 0 {
+					<p class="muted">No actions yet.</p>
+				} else {
+					<ul class="notes-history">
+						for _, a := range v.Actions {
+							<li class="note">
+								<div class="meta">{ a.Action } by { a.ActorID }</div>
+								if a.Reason != "" {
+									<div>{ a.Reason }</div>
+								}
+							</li>
+						}
+					</ul>
+				}
+			</aside>
+		</div>
+	}
+}

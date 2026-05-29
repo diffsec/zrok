@@ -1,0 +1,57 @@
+package templates
+
+templ Settings(v SettingsView) {
+	@Layout(v.Page) {
+		<header class="page-header"><h1>Org Settings &mdash; { v.OrgName }</h1></header>
+
+		<section>
+			<h2>Default models</h2>
+			<form method="post" action="/settings" class="form-grid">
+				<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+				<label>Orchestrator</label>
+				<select name="default_orch">
+					<option value="">unset</option>
+					for _, p := range v.Providers {
+						for _, m := range v.AllProviderModels[p.ID] {
+							<option value={ p.ID + "/" + m.Model }>{ p.Name } / { m.Model }</option>
+						}
+					}
+				</select>
+				<label>Analysis</label>
+				<select name="default_analysis">
+					<option value="">unset</option>
+					for _, p := range v.Providers {
+						for _, m := range v.AllProviderModels[p.ID] {
+							<option value={ p.ID + "/" + m.Model }>{ p.Name } / { m.Model }</option>
+						}
+					}
+				</select>
+				<label>Validation</label>
+				<select name="default_validation">
+					<option value="">unset</option>
+					for _, p := range v.Providers {
+						for _, m := range v.AllProviderModels[p.ID] {
+							<option value={ p.ID + "/" + m.Model }>{ p.Name } / { m.Model }</option>
+						}
+					}
+				</select>
+				<div class="actions" style="grid-column:1/-1">
+					<button type="submit" class="btn btn-primary">Save</button>
+				</div>
+			</form>
+		</section>
+
+		<section>
+			<h2>Maintenance</h2>
+			if v.Maintenance {
+				<form method="post" action="/settings/rotate-kek?maintenance=true">
+					<input type="hidden" name="csrf_token" value={ v.Page.CSRFToken }/>
+					<button type="submit" class="btn btn-danger">Rotate KEK</button>
+				</form>
+				<p class="muted">Re-encrypts every providers.api_key row under the new master key.</p>
+			} else {
+				<p class="muted">Append <code>?maintenance=true</code> to this URL to expose the KEK rotation button.</p>
+			}
+		</section>
+	}
+}

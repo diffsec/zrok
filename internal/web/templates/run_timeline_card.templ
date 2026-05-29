@@ -1,0 +1,32 @@
+package templates
+
+// RunTimelineCard renders the vertical phase/agent timeline on the run page.
+// For PR-5 we render a simple summary based on the timeline_events the SSE
+// stream has already populated. The cards click-through to the transcript
+// drawer; the per-card SSE swap targets are still wired by the parent.
+templ RunTimelineCard(v RunView) {
+	if len(v.Phases) == 0 {
+		<div class="phase-card">
+			<h3>Pending</h3>
+			<p class="muted">No phase activity yet.</p>
+		</div>
+	} else {
+		for _, p := range v.Phases {
+			<div class="phase-card">
+				<h3>{ p.Name } <span class="muted">{ p.Status }</span></h3>
+				<div class="agent-grid">
+					for _, a := range p.Agents {
+						<div class={ "agent-card", a.Status }
+							hx-get={ "/repos/" + v.Repo.ID + "/runs/" + v.Run.ID + "/agents/" + a.Slot + "/transcript" }
+							hx-target="#transcript-slot"
+							hx-swap="innerHTML"
+						>
+							<div class="agent-name">{ a.Name }</div>
+							<div class="agent-meta">{ a.Status }</div>
+						</div>
+					}
+				</div>
+			</div>
+		}
+	}
+}

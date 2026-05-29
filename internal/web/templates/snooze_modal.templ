@@ -1,0 +1,22 @@
+package templates
+
+templ SnoozeModal(v ModalView) {
+	<dialog>
+		<form method="post" hx-post={ "/repos/" + v.RepoID + "/findings/" + v.FindingID + "/snooze" } hx-swap="none">
+			<input type="hidden" name="csrf_token" value={ v.CSRFToken }/>
+			<div class="modal-header"><h3>Snooze finding</h3></div>
+			<div class="modal-body">
+				<label>Until
+					<input type="date" name="until" value={ v.DefaultUntil } required/>
+				</label>
+				<label>Reason
+					<textarea name="reason"></textarea>
+				</label>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn" data-close-modal>Cancel</button>
+				<button type="submit" class="btn btn-primary">Snooze</button>
+			</div>
+		</form>
+	</dialog>
+}

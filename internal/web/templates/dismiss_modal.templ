@@ -1,0 +1,21 @@
+package templates
+
+templ DismissModal(v ModalView) {
+	<dialog>
+		<form method="post" action={ templ.URL("/repos/" + v.RepoID + "/findings/" + v.FindingID + "/dismiss") }
+			hx-post={ "/repos/" + v.RepoID + "/findings/" + v.FindingID + "/dismiss" }
+			hx-swap="none">
+			<input type="hidden" name="csrf_token" value={ v.CSRFToken }/>
+			<div class="modal-header"><h3>Dismiss as false positive</h3></div>
+			<div class="modal-body">
+				<label>Reason
+					<textarea name="reason" required></textarea>
+				</label>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn" data-close-modal>Cancel</button>
+				<button type="submit" class="btn btn-primary">Dismiss</button>
+			</div>
+		</form>
+	</dialog>
+}
