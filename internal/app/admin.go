@@ -35,7 +35,7 @@ Run during a maintenance window.`,
 			if err != nil {
 				return err
 			}
-			defer stores.Close()
+			defer func() { _ = stores.Close() }()
 
 			n, err := stores.Providers.RotateKeys(ctx)
 			if err != nil {

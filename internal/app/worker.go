@@ -66,7 +66,7 @@ func runWorker(ctx context.Context, workerID, runnerImage, baseURL string, useDo
 			log.Warn("docker runtime unavailable; running without container backend", "err", err)
 		} else {
 			rt = dr
-			defer dr.Close()
+			defer func() { _ = dr.Close() }()
 		}
 	}
 

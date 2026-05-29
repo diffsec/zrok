@@ -63,7 +63,7 @@ func runAgentSidecarFromFile(ctx context.Context, jobFile string, w io.Writer) e
 	if err != nil {
 		return fmt.Errorf("dial rpc socket: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	return RunSidecar(ctx, &spec, client, NewEnvProviderFactory(&spec), w)
 }
 

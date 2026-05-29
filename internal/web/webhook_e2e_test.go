@@ -46,7 +46,7 @@ func TestWebhookEndpointEnqueuesRunPR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	defer stores.Close()
+	defer func() { _ = stores.Close() }()
 	if err := migrations.Up(migrations.DialectSQLite, stores.DB); err != nil {
 		t.Fatalf("migrate up: %v", err)
 	}

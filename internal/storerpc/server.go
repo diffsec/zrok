@@ -204,7 +204,7 @@ func (s *Server) findingsCreate(ctx context.Context, env Envelope, expectedRepo 
 	if err := s.Stores.Findings.Create(ctx, &req.Row); err != nil {
 		return rpcError(err)
 	}
-	return okReply(FindingsCreateRes{Row: req.Row})
+	return okReply(FindingsCreateRes(req))
 }
 
 func (s *Server) findingsGet(ctx context.Context, env Envelope, expectedRepo string) Reply {
@@ -337,7 +337,7 @@ func (s *Server) memoriesUpsert(ctx context.Context, env Envelope, expectedRepo 
 	if err := s.Stores.Memories.Upsert(ctx, &req.Row); err != nil {
 		return rpcError(err)
 	}
-	return okReply(MemoriesUpsertRes{Row: req.Row})
+	return okReply(MemoriesUpsertRes(req))
 }
 
 func (s *Server) memoriesGet(ctx context.Context, env Envelope, expectedRepo string) Reply {
@@ -424,7 +424,7 @@ func (s *Server) exceptionsCreate(ctx context.Context, env Envelope, expectedRep
 	if err := s.Stores.Exceptions.Create(ctx, &req.Row); err != nil {
 		return rpcError(err)
 	}
-	return okReply(ExceptionsCreateRes{Row: req.Row})
+	return okReply(ExceptionsCreateRes(req))
 }
 
 func (s *Server) exceptionsGet(ctx context.Context, env Envelope, expectedRepo string) Reply {

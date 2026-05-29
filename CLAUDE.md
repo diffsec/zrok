@@ -229,3 +229,63 @@ exercises the full pipeline by replacing the `container.Runtime` with
 an in-process Runtime that calls `RunSidecar` directly against the
 worker's real socket using a fake LLM scripted to emit a
 `finding_create` tool call.
+
+## SaaS rewrite verification status
+
+Verified locally (without Docker / GitHub App / real LLM keys):
+
+- `go build ./cmd/quokka` succeeds; binary lists `admin/agent/migrate/
+  server/worker`.
+- `quokka migrate up` against an empty SQLite DSN creates all 25 tables
+  (incl. FTS5 for memories); `migrate down` rolls back cleanly.
+- `quokka migrate` against Postgres works via the testcontainers test
+  in `db/migrations/`.
+- `quokka server` boots, serves `/healthz` 200 with secure headers
+  (CSP, X-Frame-Options, etc.), renders the templ login page, and
+  redirects anon `/repos` to `/login?next=/repos`.
+- `go test -count=1 -short ./...` is green across all 35 packages
+  including: SSE replay + live broadcast, triage CRUD + bulk + CSRF,
+  provider encrypt + test + discovery, agent editor versioning,
+  workflow YAML validate, per-repo settings, auto-resolve + re-emerge,
+  webhook signature + dispatch + idempotency, container lifecycle
+  (skips without Docker), full RunPR end-to-end with fake runtime +
+  fake LLM (real RPC socket, real DB rows, real GitHub feedback
+  writers).
+- `golangci-lint run` is clean (errcheck/govet/staticcheck/unused).
+- The `legacy-cli` branch at commit `656886a` still builds and runs;
+  `LEGACY.md` flags it as frozen.
+
+Blocked on external setup (must be exercised manually before private
+preview):
+
+- `make runner-image` and `docker compose up` — Docker daemon required.
+- Real GitHub App registration: `QUOKKA_GITHUB_APP_ID`,
+  `_CLIENT_ID`, `_CLIENT_SECRET`, `_PRIVATE_KEY_FILE`,
+  `_WEBHOOK_SECRET`. Without these the OAuth handshake, webhook HMAC
+  verify, and the App-installation token cache are unexercised against
+  the live API.
+- Real LLM provider keys (`ANTHROPIC_API_KEY` or an
+  openai-compatible key + base URL). Without these, no real agent
+  run end-to-end.
+- A test repo with `.quokka/agents/*.yaml` to exercise
+  `InstallRepo` config import against a live clone.
+
+Carried gaps tracked for follow-up PRs:
+
+- **Cross-process broadcaster**: in Compose mode, the worker and the
+  server each create their own `transcript.NewBroadcaster()`; the
+  worker's live events never reach the server's SSE subscribers.
+  Completed-run replay from DB still works. Redis pub/sub fanout is
+  the v2 fix.
+- **Per-slot HTML fragment SSE swaps**: the SSE handler currently
+  emits the raw `TranscriptEvent` JSON. The run-view's `sse-swap`
+  targets exist but the server doesn't yet render templ fragments
+  tagged `agent-{slot}`. PR-6 follow-up.
+- **Workflow editor**: shipped as a YAML textarea + Save/Activate.
+  The Sortable.js phase-card UX is wired in `static/js/app.js` but
+  the per-phase card markup in `workflow_editor.templ` is the
+  follow-up to replace the textarea.
+- **Egress allowlist sidecar**: documented-only in
+  `internal/agentruntime/container/network.go`. v2.
+- **Asynq queue**: SQL queue covers solo and Compose modes today. A
+  Redis-backed asynq variant can land when scale demands it.

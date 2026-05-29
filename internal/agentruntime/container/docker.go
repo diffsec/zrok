@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
@@ -207,7 +208,7 @@ func (d *DockerRuntime) Wait(ctx context.Context, id string) (int, error) {
 func (d *DockerRuntime) Kill(ctx context.Context, id string) error {
 	if err := d.cli.ContainerKill(ctx, id, "SIGKILL"); err != nil {
 		// Idempotent — ignore "no such container".
-		if client.IsErrNotFound(err) {
+		if cerrdefs.IsNotFound(err) {
 			return nil
 		}
 		return err
@@ -217,7 +218,7 @@ func (d *DockerRuntime) Kill(ctx context.Context, id string) error {
 
 func (d *DockerRuntime) Remove(ctx context.Context, id string) error {
 	err := d.cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
-	if err != nil && client.IsErrNotFound(err) {
+	if err != nil && cerrdefs.IsNotFound(err) {
 		return nil
 	}
 	return err

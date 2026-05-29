@@ -15,13 +15,11 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/diffsec/quokka/internal/agentloop"
@@ -230,48 +228,3 @@ func writeSSEError(w http.ResponseWriter, flusher http.Flusher, err error) {
 // import cycle on the worker.
 var _ SSEBroadcaster = (*transcript.Broadcaster)(nil)
 
-// drainEvents — unused at the moment but kept here to document the intent.
-// It illustrates the "drain channel until ctx" idiom we may need in tests.
-func drainEvents(ctx context.Context, ch <-chan agentloop.TranscriptEvent) []agentloop.TranscriptEvent {
-	var out []agentloop.TranscriptEvent
-	for {
-		select {
-		case <-ctx.Done():
-			return out
-		case ev, ok := <-ch:
-			if !ok {
-				return out
-			}
-			out = append(out, ev)
-		}
-	}
-}
-
-// Helper kept for handlers that need to derive repo/run IDs from PathValue
-// while also supporting the old prefix-based split for backward compat.
-func splitRepoRun(r *http.Request) (string, string) {
-	repoID := r.PathValue("repo_id")
-	runID := r.PathValue("run_id")
-	if repoID != "" && runID != "" {
-		return repoID, runID
-	}
-	const prefix = "/repos/"
-	if !strings.HasPrefix(r.URL.Path, prefix) {
-		return "", ""
-	}
-	rest := r.URL.Path[len(prefix):]
-	idx := strings.Index(rest, "/")
-	if idx < 0 {
-		return "", ""
-	}
-	repoID = rest[:idx]
-	rest = rest[idx+1:]
-	if !strings.HasPrefix(rest, "runs/") {
-		return "", ""
-	}
-	runID = rest[len("runs/"):]
-	if i := strings.Index(runID, "/"); i >= 0 {
-		runID = runID[:i]
-	}
-	return repoID, runID
-}

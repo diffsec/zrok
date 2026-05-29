@@ -3,7 +3,6 @@ package middleware
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"net/http"
 	"time"
 
@@ -35,10 +34,6 @@ func Session(stores *store.Stores, secureCookies bool) func(http.Handler) http.H
 			}
 			sess, err := stores.Sessions.Get(r.Context(), c.Value)
 			if err != nil {
-				if !errors.Is(err, store.ErrNotFound) {
-					// Lookup failure shouldn't crash the request — proceed
-					// anonymous, the logging middleware will record context.
-				}
 				clearCookie(w, SessionCookieName, "/", secureCookies)
 				next.ServeHTTP(w, r)
 				return

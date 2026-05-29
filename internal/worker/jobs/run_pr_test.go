@@ -281,7 +281,7 @@ func TestRunPREndToEndWithFakes(t *testing.T) {
 	if finishIdx == -1 || reviewIdx == -1 || summaryIdx == -1 {
 		t.Fatalf("missing writer: calls=%v", fb.calls)
 	}
-	if !(finishIdx < reviewIdx && reviewIdx < summaryIdx) {
+	if finishIdx >= reviewIdx || reviewIdx >= summaryIdx {
 		t.Fatalf("writer order wrong: calls=%v (want finish < review < summary)", fb.calls)
 	}
 
@@ -512,8 +512,8 @@ func (s *sidecarRuntime) Start(ctx context.Context, id string) error {
 	})
 
 	go func() {
-		defer client.Close()
-		defer s.logsW.Close()
+		defer func() { _ = client.Close() }()
+		defer func() { _ = s.logsW.Close() }()
 		err := app.RunSidecar(ctx, &spec, client, factory, s.logsW)
 		code := 0
 		if err != nil {

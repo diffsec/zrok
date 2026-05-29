@@ -272,9 +272,7 @@ func floatStr(f float32) string {
 	for strings.HasSuffix(s, "0") {
 		s = s[:len(s)-1]
 	}
-	if strings.HasSuffix(s, ".") {
-		s = s[:len(s)-1]
-	}
+	s = strings.TrimSuffix(s, ".")
 	return s
 }
 

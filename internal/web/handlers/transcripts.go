@@ -86,7 +86,7 @@ func readTranscriptFile(uri string) ([]templates.TranscriptLine, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var out []templates.TranscriptLine
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 1<<24)

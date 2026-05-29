@@ -7,3 +7,15 @@ linters:
     - govet
     - staticcheck
     - unused
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.DB).Close
+        - (*net.UnixListener).Close
+        - (net.Conn).Close
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - fmt.Fprint
+        - (net/http.ResponseWriter).Write

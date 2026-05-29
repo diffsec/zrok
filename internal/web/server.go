@@ -77,7 +77,7 @@ func NewServer(cfg Config) *Server {
 	if cfg.IdleTimeout == 0 {
 		cfg.IdleTimeout = 120 * time.Second
 	}
-	if cfg.SecureCookies == false && cfg.BaseURL != "" {
+	if !cfg.SecureCookies && cfg.BaseURL != "" {
 		cfg.SecureCookies = strings.HasPrefix(cfg.BaseURL, "https://")
 	}
 

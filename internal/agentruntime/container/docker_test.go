@@ -16,7 +16,7 @@ func TestDockerLifecycle(t *testing.T) {
 	if err != nil {
 		t.Skipf("docker unavailable: %v", err)
 	}
-	defer rt.Close()
+	defer func() { _ = rt.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

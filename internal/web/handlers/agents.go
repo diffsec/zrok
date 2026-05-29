@@ -468,14 +468,6 @@ func (h *AgentsHandler) toolNames() []string {
 	return h.ToolRegistry.AllToolNames()
 }
 
-func knownProjectTypes() []string {
-	return []string{"web-app", "api-service", "cli-tool", "library", "worker"}
-}
-
-func knownProjectTraits() []string {
-	return []string{"has-datastore", "has-auth", "has-infrastructure", "has-sensitive-data", "has-external-apis"}
-}
-
 func splitCSV(s string) []string {
 	s = strings.TrimSpace(s)
 	if s == "" {

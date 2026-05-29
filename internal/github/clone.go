@@ -49,7 +49,7 @@ func (g *GoGitCloner) Clone(ctx context.Context, installToken, repoFullName, ref
 	if ref != "" {
 		opts.ReferenceName = plumbing.NewBranchReferenceName(ref)
 	}
-	repo, err := gogit.PlainCloneContext(ctx, destDir, false, opts)
+	_, err := gogit.PlainCloneContext(ctx, destDir, false, opts)
 	if err != nil {
 		// Retry with the SHA as a reference for cases where the ref isn't a
 		// branch name (PR head SHAs aren't pushed as branches but the API
@@ -60,6 +60,7 @@ func (g *GoGitCloner) Clone(ctx context.Context, installToken, repoFullName, ref
 			Auth:  auth,
 			Depth: depth,
 		}
+		var repo *gogit.Repository
 		repo, err = gogit.PlainCloneContext(ctx, destDir, false, fallback)
 		if err != nil {
 			return "", fmt.Errorf("clone %s: %w", repoFullName, err)
